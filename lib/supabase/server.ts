@@ -1,8 +1,11 @@
 import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 
 export async function createClient() {
   const cookieStore = await cookies();
+  const headerStore = await headers();
+  const host = headerStore.get('host') ?? '';
+  const cookieDomain = host.endsWith('eazybudget.com') ? '.eazybudget.com' : undefined;
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,7 +17,6 @@ export async function createClient() {
         },
         setAll(cookiesToSet) {
           try {
-            const cookieDomain = process.env.NEXT_PUBLIC_COOKIE_DOMAIN;
             cookiesToSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, cookieDomain ? { ...options, domain: cookieDomain } : options)
             );
