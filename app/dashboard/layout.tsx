@@ -66,13 +66,11 @@ export default async function DashboardLayout({ children }: { children: React.Re
         {/* 360R link */}
         <div className="px-3 pb-2">
           <a
-            href="https://360r.eazybudget.com"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="https://360-retirement.eazybudget.com/dashboard"
             className="flex items-center gap-2 px-3 py-2 text-xs text-violet-600 hover:text-violet-700 hover:bg-violet-50 rounded-lg transition-colors font-medium"
           >
             <ExternalLink className="w-3.5 h-3.5" />
-            Open 360 Retirement
+            ← Retirement Planner
           </a>
         </div>
 
