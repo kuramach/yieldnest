@@ -1,7 +1,9 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { TrendingUp, LayoutDashboard, FolderOpen, Settings, LogOut, ExternalLink } from 'lucide-react';
+import { Suspense } from 'react';
+import { TrendingUp, LayoutDashboard, FolderOpen, Settings, LogOut } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
+import BackLink from '@/components/BackLink';
 
 async function LogoutButton() {
   // Server action for logout
@@ -63,15 +65,16 @@ export default async function DashboardLayout({ children }: { children: React.Re
           ))}
         </nav>
 
-        {/* 360R link */}
+        {/* Back to 360 Retirement */}
         <div className="px-3 pb-2">
-          <a
-            href="https://360-retirement.eazybudget.com/dashboard"
-            className="flex items-center gap-2 px-3 py-2 text-xs text-violet-600 hover:text-violet-700 hover:bg-violet-50 rounded-lg transition-colors font-medium"
-          >
-            <ExternalLink className="w-3.5 h-3.5" />
-            ← Retirement Planner
-          </a>
+          <Suspense fallback={
+            <a href="https://360-retirement.eazybudget.com/dashboard"
+              className="flex items-center gap-2 px-3 py-2 text-xs text-violet-600 hover:text-violet-700 hover:bg-violet-50 rounded-lg transition-colors font-medium">
+              ← Retirement Planner
+            </a>
+          }>
+            <BackLink />
+          </Suspense>
         </div>
 
         {/* User + logout */}
