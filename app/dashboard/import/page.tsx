@@ -203,7 +203,7 @@ export default function ImportPage() {
           <input
             ref={fileRef}
             type="file"
-            accept=".xlsx,.xls,.pdf"
+            accept=".xlsx,.xls"
             className="hidden"
             onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload(f); }}
           />
@@ -218,7 +218,7 @@ export default function ImportPage() {
                 <Upload className="w-7 h-7 text-slate-400" />
               </div>
               <p className="text-slate-700 font-semibold mb-1">Drop your brokerage export here</p>
-              <p className="text-sm text-slate-400 mb-4">Supports .xlsx and .pdf files</p>
+              <p className="text-sm text-slate-400 mb-4">Supports Excel files (.xlsx, .xls)</p>
               <p className="text-xs text-slate-400">
                 Make sure your file has columns named: <strong>Symbol/Ticker</strong>, <strong>Shares/Quantity</strong>, and optionally <strong>Market Value</strong>
               </p>
