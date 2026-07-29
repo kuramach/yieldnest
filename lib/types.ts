@@ -4,7 +4,40 @@ export interface Portfolio {
   name: string;
   description?: string;
   linked_360r_scenario_id?: number;
+  is_public: boolean;
+  imported_from_id?: number;
   created_at: string;
+}
+
+export interface ImportedHolding {
+  ticker: string;
+  shares: number;
+  value?: number;
+  name?: string;
+  price?: number;
+  year_return?: number;
+  asset_type?: 'stock' | 'etf' | 'bond';
+}
+
+export interface OptimizationResult {
+  ticker: string;
+  name: string;
+  weight: number;
+  year_return: number;
+  asset_type: 'stock' | 'etf' | 'bond';
+  price: number;
+}
+
+export interface PublicPortfolio {
+  id: number;
+  user_id: string;
+  name: string;
+  description?: string;
+  is_public: boolean;
+  created_at: string;
+  bucket_count: number;
+  holding_count: number;
+  avg_return?: number;
 }
 
 export interface Bucket {

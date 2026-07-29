@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Plus, TrendingUp, DollarSign, Target, Layers } from 'lucide-react';
+import { Plus, TrendingUp, DollarSign, Target, Layers, Upload, Globe } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import type { Portfolio, Bucket } from '@/lib/types';
 
@@ -50,13 +50,29 @@ export default async function DashboardPage() {
             Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}
           </p>
         </div>
-        <Link
-          href="/dashboard/portfolio/new"
-          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-xl transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          New Portfolio
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/dashboard/explore"
+            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 hover:border-violet-300 hover:bg-violet-50 text-slate-700 hover:text-violet-700 text-sm font-semibold rounded-xl transition-colors"
+          >
+            <Globe className="w-4 h-4" />
+            Explore
+          </Link>
+          <Link
+            href="/dashboard/import"
+            className="flex items-center gap-2 px-4 py-2.5 bg-white border border-slate-200 hover:border-emerald-300 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 text-sm font-semibold rounded-xl transition-colors"
+          >
+            <Upload className="w-4 h-4" />
+            Import
+          </Link>
+          <Link
+            href="/dashboard/portfolio/new"
+            className="flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-xl transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            New Portfolio
+          </Link>
+        </div>
       </div>
 
       {/* Stats */}
@@ -139,6 +155,16 @@ export default async function DashboardPage() {
                       {portfolio.linked_360r_scenario_id && (
                         <span className="text-[10px] font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">
                           360R linked
+                        </span>
+                      )}
+                      {portfolio.is_public && (
+                        <span className="text-[10px] font-semibold bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">
+                          Public
+                        </span>
+                      )}
+                      {portfolio.imported_from_id && (
+                        <span className="text-[10px] font-semibold bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">
+                          Imported
                         </span>
                       )}
                     </div>

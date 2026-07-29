@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { Suspense } from 'react';
-import { TrendingUp, LayoutDashboard, FolderOpen, Settings, LogOut } from 'lucide-react';
+import { TrendingUp, LayoutDashboard, FolderOpen, Upload, Globe, LogOut } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import BackLink from '@/components/BackLink';
 
@@ -35,8 +35,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   const navItems = [
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { href: '/dashboard', label: 'Portfolios', icon: FolderOpen },
-    { href: '/dashboard', label: 'Settings', icon: Settings },
+    { href: '/dashboard/import', label: 'Import Portfolio', icon: Upload },
+    { href: '/dashboard/explore', label: 'Explore Public', icon: Globe },
   ];
 
   return (
