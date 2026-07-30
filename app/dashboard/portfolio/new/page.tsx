@@ -1,17 +1,29 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { ArrowLeft, Loader2, ChevronDown } from 'lucide-react';
+
+interface Scenario { id: number; name: string; is_baseline: number }
 
 export default function NewPortfolioPage() {
   const router = useRouter();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [scenarioId, setScenarioId] = useState('');
+  const [scenarios, setScenarios] = useState<Scenario[]>([]);
+  const [loadingScenarios, setLoadingScenarios] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetch('/api/scenarios')
+      .then(r => r.json())
+      .then(data => { if (Array.isArray(data)) setScenarios(data); })
+      .catch(() => {})
+      .finally(() => setLoadingScenarios(false));
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -56,9 +68,7 @@ export default function NewPortfolioPage() {
       </Link>
 
       <h1 className="text-2xl font-bold text-slate-900 mb-1">Create Portfolio</h1>
-      <p className="text-sm text-slate-400 mb-8">
-        A portfolio holds multiple return-targeted buckets.
-      </p>
+      <p className="text-sm text-slate-400 mb-8">A portfolio holds multiple return-targeted buckets.</p>
 
       <div className="bg-white border border-slate-200 rounded-2xl p-8">
         {error && (
@@ -100,13 +110,24 @@ export default function NewPortfolioPage() {
               Link to 360Retirement Scenario{' '}
               <span className="text-slate-400 text-xs font-normal">(optional)</span>
             </label>
-            <input
-              type="number"
-              value={scenarioId}
-              onChange={(e) => setScenarioId(e.target.value)}
-              placeholder="Scenario ID from 360r.eazybudget.com"
-              className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
-            />
+            <div className="relative">
+              <select
+                value={scenarioId}
+                onChange={e => setScenarioId(e.target.value)}
+                disabled={loadingScenarios}
+                className="w-full appearance-none px-3 py-2.5 pr-9 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 bg-white disabled:text-slate-400"
+              >
+                <option value="">
+                  {loadingScenarios ? 'Loading scenarios…' : scenarios.length === 0 ? 'No scenarios found' : '— None —'}
+                </option>
+                {scenarios.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}{s.is_baseline ? ' (baseline)' : ''}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            </div>
             <p className="text-xs text-slate-400 mt-1">
               When linked, bucket returns feed directly into your retirement projection.
             </p>
