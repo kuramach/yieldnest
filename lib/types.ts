@@ -18,6 +18,18 @@ export interface ImportedHolding {
   price?: number;
   year_return?: number;
   asset_type?: 'stock' | 'etf' | 'bond';
+  morningstar_stars?: number;       // 1–5, available for ETFs/funds
+  analyst_rating?: string;          // 'strongBuy'|'buy'|'hold'|'sell'|'strongSell'
+  analyst_count?: number;
+}
+
+export interface TickerRating {
+  ticker: string;
+  morningstar_stars?: number;
+  morningstar_risk?: number;
+  analyst_rating?: string;
+  analyst_count?: number;
+  analyst_mean?: number;            // 1=Strong Buy … 5=Strong Sell
 }
 
 export interface HoldingHistoricalStats {

@@ -160,9 +160,33 @@ Example format: {"AAPL": "Growth-oriented tech giant focused on premium consumer
     // descriptions are optional, don't fail the whole request
   }
 
+  // Fetch Morningstar star ratings + analyst consensus from Yahoo Finance quoteSummary
+  const ratingMap: Record<string, { morningstar_stars?: number; analyst_rating?: string; analyst_count?: number }> = {};
+  await Promise.allSettled(
+    uniqueTickers.map(async (ticker) => {
+      try {
+        const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=financialData,ratingDetail`;
+        const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const json = await res.json() as any;
+        const r = json?.quoteSummary?.result?.[0];
+        if (!r) return;
+        const fd = r.financialData;
+        const rd = r.ratingDetail?.result;
+        ratingMap[ticker] = {
+          morningstar_stars: rd?.morningStarOverallRating ?? undefined,
+          analyst_rating: fd?.recommendationKey ?? undefined,
+          analyst_count: fd?.numberOfAnalystOpinions?.raw ?? undefined,
+        };
+      } catch { /* ratings are optional */ }
+    })
+  );
+
   const withDescriptions = enriched.map(h => ({
     ...h,
     description: descMap[h.ticker] || undefined,
+    morningstar_stars: ratingMap[h.ticker]?.morningstar_stars,
+    analyst_rating: ratingMap[h.ticker]?.analyst_rating,
+    analyst_count: ratingMap[h.ticker]?.analyst_count,
   }));
 
   return NextResponse.json({ holdings: withDescriptions });
