@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Upload, ChevronRight, ChevronLeft, Check, Globe, Lock,
   TrendingUp, TrendingDown, AlertCircle, Loader2, DollarSign,
-  BarChart3, Minus,
+  BarChart3, Minus, RotateCcw, SlidersHorizontal,
 } from 'lucide-react';
 import type { ImportedHolding, HoldingHistoricalStats, PortfolioAnalysis, OptimizationResult } from '@/lib/types';
 
@@ -77,6 +77,8 @@ export default function ImportPage() {
   const [optimized, setOptimized] = useState<OptimizationResult[]>([]);
   const [weightedReturn, setWeightedReturn] = useState(0);
   const [totalAllocated, setTotalAllocated] = useState(0);
+  // editedWeights: ticker → weight (0–100 as percentage string for input)
+  const [editedWeights, setEditedWeights] = useState<Record<string, string>>({});
 
   const [targetReturn, setTargetReturn] = useState(0.07);
   const [availableCash, setAvailableCash] = useState('');
@@ -147,6 +149,10 @@ export default function ImportPage() {
       setOptimized(json.optimized);
       setWeightedReturn(json.weighted_return);
       setTotalAllocated(json.total_allocated);
+      // seed editable weights from AI result
+      const initial: Record<string, string> = {};
+      for (const h of json.optimized) initial[h.ticker] = (h.weight * 100).toFixed(1);
+      setEditedWeights(initial);
       setStep('optimize');
     } catch (e: any) {
       setError(e.message);
@@ -183,7 +189,7 @@ export default function ImportPage() {
       const bucket = await bRes.json();
       if (!bRes.ok) throw new Error(bucket.error);
 
-      const source = optimized.length > 0 ? optimized : holdings.map(h => ({
+      const source = liveRows.length > 0 ? liveRows : holdings.map(h => ({
         ticker: h.ticker, name: h.name || h.ticker,
         weight: 1 / holdings.length, cagr: 0, year_return: 0,
         asset_type: h.asset_type ?? 'stock' as const,
@@ -213,6 +219,37 @@ export default function ImportPage() {
 
   const statsMap = Object.fromEntries((analysis?.stats ?? []).map(s => [s.ticker, s]));
   const cash = parseFloat(availableCash.replace(/,/g, '')) || 0;
+
+  // Derive live values from editedWeights
+  const liveRows = useMemo(() => {
+    const totalPct = Object.values(editedWeights).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+    return optimized.map(h => {
+      const rawPct = parseFloat(editedWeights[h.ticker] ?? '0') || 0;
+      const w = totalPct > 0 ? rawPct / totalPct : 1 / optimized.length;
+      const dollar = cash > 0 ? cash * w : 0;
+      return { ...h, weight: w, dollar_amount: dollar, shares_to_buy: h.price > 0 && dollar > 0 ? Math.floor(dollar / h.price) : 0 };
+    });
+  }, [editedWeights, optimized, cash]);
+
+  const totalWeightPct = Object.values(editedWeights).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+  const liveBlended = liveRows.reduce((s, h) => s + h.weight * (h.cagr ?? 0), 0);
+  const liveTotalAllocated = liveRows.reduce((s, h) => s + h.dollar_amount, 0);
+
+  function normalizeWeights() {
+    const total = Object.values(editedWeights).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+    if (total === 0) return;
+    const normalized: Record<string, string> = {};
+    for (const [t, v] of Object.entries(editedWeights)) {
+      normalized[t] = ((parseFloat(v) || 0) / total * 100).toFixed(1);
+    }
+    setEditedWeights(normalized);
+  }
+
+  function resetToAI() {
+    const reset: Record<string, string> = {};
+    for (const h of optimized) reset[h.ticker] = (h.weight * 100).toFixed(1);
+    setEditedWeights(reset);
+  }
 
   return (
     <div className="p-8 max-w-5xl">
@@ -440,9 +477,9 @@ export default function ImportPage() {
         <div>
           <div className="grid grid-cols-3 gap-4 mb-6">
             {[
-              { label: 'Blended CAGR', value: pct(weightedReturn), sub: `target was ${(targetReturn * 100).toFixed(0)}%`, color: 'emerald' },
-              { label: 'Cash to Deploy', value: fmtUsd(cash || null), sub: cash > 0 ? `$${(cash - totalAllocated).toLocaleString(undefined, { maximumFractionDigits: 0 })} unallocated` : 'not set', color: 'blue' },
-              { label: 'Total Allocated', value: fmtUsd(totalAllocated || null), sub: `across ${optimized.length} holdings`, color: 'violet' },
+              { label: 'Blended CAGR', value: pct(liveBlended), sub: `target was ${(targetReturn * 100).toFixed(0)}%`, color: 'emerald' },
+              { label: 'Cash to Deploy', value: fmtUsd(cash || null), sub: cash > 0 ? `$${(cash - liveTotalAllocated).toLocaleString(undefined, { maximumFractionDigits: 0 })} unallocated` : 'not set', color: 'blue' },
+              { label: 'Total Allocated', value: fmtUsd(liveTotalAllocated || null), sub: `across ${liveRows.length} holdings`, color: 'violet' },
             ].map(({ label, value, sub, color }) => (
               <div key={label} className="bg-white border border-slate-200 rounded-2xl p-5">
                 <p className="text-xs text-slate-400 mb-1">{label}</p>
@@ -453,48 +490,81 @@ export default function ImportPage() {
           </div>
 
           <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden mb-6">
-            <div className="px-5 py-3.5 border-b border-slate-100">
-              <h2 className="font-semibold text-slate-800">Optimized Allocation</h2>
-              <p className="text-xs text-slate-400 mt-0.5">Weights use 20-year CAGR and volatility. Sorted by weight.</p>
+            <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
+              <div>
+                <h2 className="font-semibold text-slate-800 flex items-center gap-2">
+                  <SlidersHorizontal className="w-4 h-4 text-slate-400" />
+                  Allocation Weights
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">Edit any weight — totals update live. Click Normalize to force 100%.</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${Math.abs(totalWeightPct - 100) < 0.2 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                  Total: {totalWeightPct.toFixed(1)}%
+                </span>
+                <button onClick={normalizeWeights}
+                  className="text-xs font-semibold px-3 py-1.5 border border-slate-200 hover:border-emerald-400 hover:text-emerald-700 rounded-lg transition-colors text-slate-600">
+                  Normalize
+                </button>
+                <button onClick={resetToAI}
+                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 border border-slate-200 hover:border-violet-400 hover:text-violet-700 rounded-lg transition-colors text-slate-600">
+                  <RotateCcw className="w-3 h-3" /> Reset to AI
+                </button>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
                     <th className="text-left px-5 py-2.5 font-medium text-slate-500">Ticker</th>
-                    <th className="text-right px-4 py-2.5 font-medium text-slate-500">Weight</th>
+                    <th className="text-center px-4 py-2.5 font-medium text-slate-500">Weight %</th>
+                    <th className="text-left px-2 py-2.5 font-medium text-slate-500 w-32">Bar</th>
                     <th className="text-right px-4 py-2.5 font-medium text-slate-500">CAGR</th>
                     {cash > 0 && <th className="text-right px-4 py-2.5 font-medium text-slate-500">$ Amount</th>}
-                    {cash > 0 && <th className="text-right px-5 py-2.5 font-medium text-slate-500">Shares to Buy</th>}
+                    {cash > 0 && <th className="text-right px-5 py-2.5 font-medium text-slate-500">Shares</th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {optimized.map(h => (
-                    <tr key={h.ticker} className="hover:bg-slate-50">
-                      <td className="px-5 py-2.5">
-                        <p className="font-mono font-semibold text-slate-900">{h.ticker}</p>
-                        <p className="text-xs text-slate-400 truncate max-w-[140px]">{h.name}</p>
-                      </td>
-                      <td className="px-4 py-2.5 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <div className="w-16 bg-slate-100 rounded-full h-1.5">
-                            <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${h.weight * 100}%` }} />
-                          </div>
-                          <span className="font-bold text-slate-900 w-12 text-right">{(h.weight * 100).toFixed(1)}%</span>
-                        </div>
-                      </td>
-                      <td className={`px-4 py-2.5 text-right font-semibold ${h.cagr >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
-                        {pct(h.cagr)}
-                      </td>
-                      {cash > 0 && <td className="px-4 py-2.5 text-right text-slate-700">{fmtUsd(h.dollar_amount)}</td>}
-                      {cash > 0 && (
-                        <td className="px-5 py-2.5 text-right">
-                          <span className="font-semibold text-slate-900">{h.shares_to_buy > 0 ? h.shares_to_buy.toLocaleString() : '—'}</span>
-                          {h.price > 0 && <span className="text-xs text-slate-400 ml-1">@ {fmtUsd(h.price)}</span>}
+                  {liveRows.map(h => {
+                    const rawPct = parseFloat(editedWeights[h.ticker] ?? '0') || 0;
+                    const isModified = Math.abs(rawPct - (optimized.find(o => o.ticker === h.ticker)?.weight ?? 0) * 100) > 0.05;
+                    return (
+                      <tr key={h.ticker} className={`${isModified ? 'bg-violet-50/40' : 'hover:bg-slate-50'}`}>
+                        <td className="px-5 py-2.5">
+                          <p className="font-mono font-semibold text-slate-900">{h.ticker}</p>
+                          <p className="text-xs text-slate-400 truncate max-w-[140px]">{h.name}</p>
                         </td>
-                      )}
-                    </tr>
-                  ))}
+                        <td className="px-4 py-2.5 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            <input
+                              type="number"
+                              min={0} max={100} step={0.5}
+                              value={editedWeights[h.ticker] ?? ''}
+                              onChange={e => setEditedWeights(prev => ({ ...prev, [h.ticker]: e.target.value }))}
+                              className="w-16 text-center border border-slate-200 rounded-lg px-2 py-1 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
+                            />
+                            <span className="text-slate-400 text-xs">%</span>
+                          </div>
+                        </td>
+                        <td className="px-2 py-2.5">
+                          <div className="w-28 bg-slate-100 rounded-full h-2">
+                            <div className={`h-2 rounded-full transition-all ${isModified ? 'bg-violet-500' : 'bg-emerald-500'}`}
+                              style={{ width: `${Math.min(h.weight * 100, 100)}%` }} />
+                          </div>
+                        </td>
+                        <td className={`px-4 py-2.5 text-right font-semibold ${h.cagr >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                          {pct(h.cagr)}
+                        </td>
+                        {cash > 0 && <td className="px-4 py-2.5 text-right text-slate-700">{fmtUsd(h.dollar_amount)}</td>}
+                        {cash > 0 && (
+                          <td className="px-5 py-2.5 text-right">
+                            <span className="font-semibold text-slate-900">{h.shares_to_buy > 0 ? h.shares_to_buy.toLocaleString() : '—'}</span>
+                            {h.price > 0 && <span className="text-xs text-slate-400 ml-1">@ {fmtUsd(h.price)}</span>}
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -548,8 +618,8 @@ export default function ImportPage() {
           </div>
 
           <div className="bg-slate-50 rounded-2xl p-4 mb-6 text-sm text-slate-600 space-y-1">
-            <p><strong>{holdings.length}</strong> holdings · <strong>{(targetReturn * 100).toFixed(0)}%</strong> target · <strong>{pct(weightedReturn)}</strong> blended CAGR</p>
-            {cash > 0 && <p>Total deployment: <strong>{fmtUsd(totalAllocated)}</strong> of <strong>{fmtUsd(cash)}</strong> available</p>}
+            <p><strong>{liveRows.length}</strong> holdings · <strong>{(targetReturn * 100).toFixed(0)}%</strong> target · <strong>{pct(liveBlended)}</strong> blended CAGR</p>
+            {cash > 0 && <p>Total deployment: <strong>{fmtUsd(liveTotalAllocated)}</strong> of <strong>{fmtUsd(cash)}</strong> available</p>}
           </div>
 
           <div className="flex justify-between">
