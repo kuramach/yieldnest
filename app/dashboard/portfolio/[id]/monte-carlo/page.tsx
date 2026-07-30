@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState, useEffect, useCallback, useMemo } from 'react';
+import { use, useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Play, RefreshCw } from 'lucide-react';
 
@@ -219,8 +219,7 @@ function fmtMoney(v: number) {
 
 interface BucketRow { id: number; name: string; target_return: number; initial_amount: number }
 
-export default function MonteCarloPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+function MonteCarloInner({ id }: { id: string }) {
 
   const [portfolio, setPortfolio] = useState<{ name: string; buckets: BucketRow[] } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -309,7 +308,8 @@ export default function MonteCarloPage({ params }: { params: Promise<{ id: strin
               className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 bg-white">
               <option value={500}>500 (fast)</option>
               <option value={1000}>1,000</option>
-              <option value={5000}>5,000 (slow)</option>
+              <option value={5000}>5,000</option>
+              <option value={20000}>20,000 (slow)</option>
             </select>
           </div>
         </div>
@@ -367,5 +367,18 @@ export default function MonteCarloPage({ params }: { params: Promise<{ id: strin
         </>
       )}
     </div>
+  );
+}
+
+export default function MonteCarloPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
+  return (
+    <Suspense fallback={
+      <div className="p-8 flex items-center gap-3 text-slate-400">
+        <RefreshCw className="w-5 h-5 animate-spin" /> Loading portfolio…
+      </div>
+    }>
+      <MonteCarloInner id={id} />
+    </Suspense>
   );
 }
