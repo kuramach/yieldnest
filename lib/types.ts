@@ -19,13 +19,35 @@ export interface ImportedHolding {
   asset_type?: 'stock' | 'etf' | 'bond';
 }
 
+export interface HoldingHistoricalStats {
+  ticker: string;
+  cagr: number;
+  best_year: number;
+  worst_year: number;
+  median_year: number;
+  volatility: number;
+  years_of_data: number;
+  annual_returns: { year: number; return: number }[];
+}
+
+export interface PortfolioAnalysis {
+  stats: HoldingHistoricalStats[];
+  ai_narrative: string;
+  portfolio_best: number;
+  portfolio_worst: number;
+  portfolio_median: number;
+}
+
 export interface OptimizationResult {
   ticker: string;
   name: string;
   weight: number;
   year_return: number;
+  cagr: number;
   asset_type: 'stock' | 'etf' | 'bond';
   price: number;
+  dollar_amount: number;
+  shares_to_buy: number;
 }
 
 export interface PublicPortfolio {
