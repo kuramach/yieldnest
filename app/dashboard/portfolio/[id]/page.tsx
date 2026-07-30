@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, ExternalLink } from 'lucide-react';
+import { ArrowLeft, ExternalLink, TrendingUp } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import type { BucketWithHoldings } from '@/lib/types';
 import PortfolioClient from './PortfolioClient';
@@ -88,11 +88,18 @@ export default async function PortfolioPage({ params }: Props) {
             )}
           </div>
 
-          <div className="text-right">
-            <p className="text-2xl font-bold text-slate-900">
-              ${totalInvested.toLocaleString()}
-            </p>
-            <p className="text-xs text-slate-400">total invested</p>
+          <div className="flex items-start gap-4">
+            <Link href={`/dashboard/portfolio/${portfolioId}/monte-carlo`}
+              className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold rounded-xl transition-colors">
+              <TrendingUp className="w-4 h-4" />
+              Monte Carlo
+            </Link>
+            <div className="text-right">
+              <p className="text-2xl font-bold text-slate-900">
+                ${totalInvested.toLocaleString()}
+              </p>
+              <p className="text-xs text-slate-400">total invested</p>
+            </div>
           </div>
         </div>
       </div>
