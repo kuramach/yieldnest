@@ -27,27 +27,28 @@ const BOND_TICKERS = new Set(['BND', 'AGG', 'TIP', 'SHY', 'VCSH', 'VGSH', 'SCHZ'
 async function fetchCandidateReturns(tickers: string[]): Promise<CandidateData[]> {
   const results = await Promise.allSettled(
     tickers.map(async (ticker): Promise<CandidateData> => {
-      const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=price,defaultKeyStatistics`;
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1y`;
       const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
       const json = await res.json() as any;
-      const result = json?.quoteSummary?.result?.[0];
-      if (!result) throw new Error(`No data for ${ticker}`);
+      const result = json?.chart?.result?.[0];
+      const meta = result?.meta;
+      if (!meta) throw new Error(`No data for ${ticker}`);
 
-      const price = result.price;
-      const stats = result.defaultKeyStatistics;
-      const regularMarketPrice: number = price?.regularMarketPrice?.raw ?? price?.regularMarketPrice ?? 0;
-      const yearReturn: number = stats?.['52WeekChange']?.raw ?? stats?.['52WeekChange'] ?? 0.05;
-      const quoteType: string = (price?.quoteType ?? '').toUpperCase();
+      const closes: number[] = (result?.indicators?.quote?.[0]?.close ?? []).filter(Boolean);
+      const yearReturn = closes.length >= 2
+        ? (closes[closes.length - 1] - closes[0]) / closes[0]
+        : 0.05;
 
+      const instrumentType = (meta.instrumentType ?? '').toUpperCase();
       let assetType: 'stock' | 'etf' | 'bond' = 'stock';
-      if (quoteType === 'ETF' || quoteType === 'MUTUALFUND') assetType = 'etf';
+      if (instrumentType === 'ETF' || instrumentType === 'MUTUALFUND') assetType = 'etf';
       if (BOND_TICKERS.has(ticker)) assetType = 'bond';
 
       return {
         ticker,
-        name: price?.longName || price?.shortName || ticker,
+        name: meta.longName || meta.shortName || ticker,
         year_return: yearReturn,
-        price: regularMarketPrice,
+        price: meta.regularMarketPrice ?? meta.chartPreviousClose ?? 0,
         asset_type: assetType,
       };
     })

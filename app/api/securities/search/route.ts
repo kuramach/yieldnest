@@ -1,83 +1,71 @@
 import { NextRequest, NextResponse } from 'next/server';
-import yahooFinance from 'yahoo-finance2';
 import { createClient } from '@/lib/supabase/server';
-import type { YFQuoteSummary, YFSearchResult } from '@/lib/yahoo-types';
 import type { SecurityQuote } from '@/lib/types';
 
+const BOND_TICKERS = new Set(['BND', 'AGG', 'TIP', 'TIPS', 'SHY', 'IEF', 'TLT', 'VCSH', 'VGSH', 'LQD', 'SCHZ', 'VGIT']);
+
 function inferAssetType(quoteType: string | undefined, symbol: string): 'stock' | 'etf' | 'bond' {
-  if (!quoteType) return 'stock';
-  const qt = quoteType.toUpperCase();
+  const qt = (quoteType ?? '').toUpperCase();
   if (qt === 'ETF' || qt === 'MUTUALFUND') return 'etf';
-  const bondTickers = ['BND', 'AGG', 'TIP', 'TIPS', 'SHY', 'IEF', 'TLT', 'VCSH', 'VGSH', 'LQD'];
-  if (qt === 'BOND' || bondTickers.some((b) => symbol.toUpperCase() === b)) return 'bond';
+  if (qt === 'BOND' || BOND_TICKERS.has(symbol.toUpperCase())) return 'bond';
   return 'stock';
 }
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const q = request.nextUrl.searchParams.get('q');
-  if (!q || q.trim().length < 1) {
-    return NextResponse.json({ error: 'Query parameter q is required' }, { status: 400 });
-  }
+  if (!q || q.trim().length < 1) return NextResponse.json({ error: 'Query parameter q is required' }, { status: 400 });
 
   try {
-    const rawSearch = await yahooFinance.search(q.trim(), {
-      newsCount: 0,
-      quotesCount: 10,
-    });
-    const searchResults = rawSearch as unknown as YFSearchResult;
+    // Yahoo Finance search endpoint (no cookie needed)
+    const searchUrl = `https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q.trim())}&quotesCount=10&newsCount=0&enableFuzzyQuery=false&lang=en-US`;
+    const searchRes = await fetch(searchUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    const searchJson = await searchRes.json() as any;
 
-    const rawQuotes = searchResults.quotes || [];
-    const filtered = rawQuotes.filter((r) =>
-      r.symbol &&
-      (r.quoteType === 'EQUITY' || r.quoteType === 'ETF' || r.quoteType === 'MUTUALFUND')
-    ).slice(0, 8);
+    const rawQuotes = (searchJson?.finance?.result?.[0]?.quotes ?? searchJson?.quotes ?? []) as any[];
+    const filtered = rawQuotes
+      .filter(r => r.symbol && (r.quoteType === 'EQUITY' || r.quoteType === 'ETF' || r.quoteType === 'MUTUALFUND'))
+      .slice(0, 8);
 
-    const quotes: SecurityQuote[] = filtered.map((r) => ({
-      ticker: r.symbol,
-      name: r.longname || r.shortname || r.symbol,
-      price: 0,
-      change_pct: 0,
-      asset_type: inferAssetType(r.quoteType, r.symbol),
-    }));
+    if (filtered.length === 0) return NextResponse.json([]);
 
-    // Enrich with live quotes
-    if (quotes.length > 0) {
-      const enriched = await Promise.allSettled(
-        quotes.map((q) =>
-          yahooFinance.quoteSummary(q.ticker, {
-            modules: ['price', 'summaryDetail', 'defaultKeyStatistics'],
-          })
-        )
-      );
+    // Enrich with live prices via v8 chart API
+    const enriched = await Promise.allSettled(
+      filtered.map(async (r): Promise<SecurityQuote> => {
+        try {
+          const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(r.symbol)}?interval=1d&range=1y`;
+          const chartRes = await fetch(chartUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+          const chartJson = await chartRes.json() as any;
+          const meta = chartJson?.chart?.result?.[0]?.meta;
+          const closes: number[] = (chartJson?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? []).filter(Boolean);
+          const year_return = closes.length >= 2 ? (closes[closes.length - 1] - closes[0]) / closes[0] : undefined;
 
-      enriched.forEach((result, i) => {
-        if (result.status === 'fulfilled') {
-          const summary = result.value as unknown as YFQuoteSummary;
-          const price = summary.price;
-          const detail = summary.summaryDetail;
-          const stats = summary.defaultKeyStatistics;
-
-          if (price) {
-            quotes[i].price = price.regularMarketPrice ?? 0;
-            quotes[i].change_pct = price.regularMarketChangePercent ?? 0;
-            quotes[i].name = price.longName || price.shortName || quotes[i].name;
-          }
-          if (detail) {
-            quotes[i].dividend_yield = detail.dividendYield ?? undefined;
-          }
-          if (stats) {
-            const weekChange = stats['52WeekChange'];
-            quotes[i].year_return = typeof weekChange === 'number' ? weekChange : undefined;
-          }
+          return {
+            ticker: r.symbol,
+            name: meta?.longName || meta?.shortName || r.longname || r.shortname || r.symbol,
+            price: meta?.regularMarketPrice ?? 0,
+            change_pct: 0,
+            year_return,
+            asset_type: inferAssetType(r.quoteType, r.symbol),
+          };
+        } catch {
+          return {
+            ticker: r.symbol,
+            name: r.longname || r.shortname || r.symbol,
+            price: 0,
+            change_pct: 0,
+            asset_type: inferAssetType(r.quoteType, r.symbol),
+          };
         }
-      });
-    }
+      })
+    );
+
+    const quotes: SecurityQuote[] = enriched.map(result =>
+      result.status === 'fulfilled' ? result.value : null
+    ).filter(Boolean) as SecurityQuote[];
 
     return NextResponse.json(quotes);
   } catch (error) {
