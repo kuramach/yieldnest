@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import yahooFinance from 'yahoo-finance2';
 import { createClient } from '@/lib/supabase/server';
-import type { YFQuoteSummary } from '@/lib/yahoo-types';
 import type { SuggestedPortfolio } from '@/lib/types';
 
 type RiskLevel = 'conservative' | 'moderate' | 'aggressive';
@@ -24,31 +22,31 @@ interface WeightedCandidate extends CandidateData {
   weight: number;
 }
 
+const BOND_TICKERS = new Set(['BND', 'AGG', 'TIP', 'SHY', 'VCSH', 'VGSH', 'SCHZ', 'VGIT']);
+
 async function fetchCandidateReturns(tickers: string[]): Promise<CandidateData[]> {
   const results = await Promise.allSettled(
     tickers.map(async (ticker): Promise<CandidateData> => {
-      const rawSummary = await yahooFinance.quoteSummary(ticker, {
-        modules: ['price', 'defaultKeyStatistics'],
-      });
-      const summary = rawSummary as unknown as YFQuoteSummary;
-      const price = summary.price;
-      const stats = summary.defaultKeyStatistics;
+      const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=price,defaultKeyStatistics`;
+      const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const json = await res.json() as any;
+      const result = json?.quoteSummary?.result?.[0];
+      if (!result) throw new Error(`No data for ${ticker}`);
 
-      const weekChange = stats?.['52WeekChange'];
-      const yearReturn = typeof weekChange === 'number' ? weekChange : null;
+      const price = result.price;
+      const stats = result.defaultKeyStatistics;
+      const regularMarketPrice: number = price?.regularMarketPrice?.raw ?? price?.regularMarketPrice ?? 0;
+      const yearReturn: number = stats?.['52WeekChange']?.raw ?? stats?.['52WeekChange'] ?? 0.05;
+      const quoteType: string = (price?.quoteType ?? '').toUpperCase();
 
-      const regularMarketPrice = price?.regularMarketPrice ?? 0;
-
-      const quoteType = price?.quoteType ?? '';
       let assetType: 'stock' | 'etf' | 'bond' = 'stock';
       if (quoteType === 'ETF' || quoteType === 'MUTUALFUND') assetType = 'etf';
-      const bondTickers = ['BND', 'AGG', 'TIP', 'SHY', 'VCSH', 'VGSH', 'SCHZ', 'VGIT'];
-      if (bondTickers.includes(ticker)) assetType = 'bond';
+      if (BOND_TICKERS.has(ticker)) assetType = 'bond';
 
       return {
         ticker,
         name: price?.longName || price?.shortName || ticker,
-        year_return: yearReturn ?? 0.05,
+        year_return: yearReturn,
         price: regularMarketPrice,
         asset_type: assetType,
       };
@@ -58,7 +56,7 @@ async function fetchCandidateReturns(tickers: string[]): Promise<CandidateData[]
   return results
     .map((r, i) => {
       if (r.status === 'fulfilled') return r.value;
-      console.warn(`Could not fetch ${tickers[i]}:`, r.reason);
+      console.warn(`Could not fetch ${tickers[i]}:`, (r as PromiseRejectedResult).reason);
       return null;
     })
     .filter((x): x is CandidateData => x !== null && x.price > 0);
