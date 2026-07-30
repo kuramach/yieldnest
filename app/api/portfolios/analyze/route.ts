@@ -13,60 +13,67 @@ function median(sorted: number[]): number {
     : sorted[mid];
 }
 
+// Fetch monthly historical prices directly from Yahoo Finance chart API (no library needed)
 async function fetchHistoricalStats(ticker: string): Promise<HoldingHistoricalStats | null> {
   try {
-    const yahooFinance = (await import('yahoo-finance2')).default;
-    const period1 = new Date();
-    period1.setFullYear(period1.getFullYear() - 20);
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1mo&range=20y`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      next: { revalidate: 86400 },
+    });
 
-    const history = await yahooFinance.historical(ticker, {
-      period1,
-      interval: '1mo' as const,
-    }) as Array<{ date: Date; close: number; adjclose?: number }>;
+    if (!res.ok) return null;
+    const json = await res.json() as any;
+    const result = json?.chart?.result?.[0];
+    if (!result) return null;
 
-    if (!history || history.length < 12) return null;
+    const timestamps: number[] = result.timestamp ?? [];
+    const closes: (number | null)[] = result.indicators?.adjclose?.[0]?.adjclose
+      ?? result.indicators?.quote?.[0]?.close
+      ?? [];
 
-    // Group by calendar year → calculate annual return
-    const byYear: Record<number, { prices: number[] }> = {};
-    for (const point of history) {
-      const year = new Date(point.date).getFullYear();
-      const price = (point as any).adjclose ?? point.close;
+    if (timestamps.length < 12 || closes.length < 12) return null;
+
+    // Group prices by calendar year
+    const byYear: Record<number, number[]> = {};
+    for (let i = 0; i < timestamps.length; i++) {
+      const price = closes[i];
       if (!price || price <= 0) continue;
-      if (!byYear[year]) byYear[year] = { prices: [] };
-      byYear[year].prices.push(price);
+      const year = new Date(timestamps[i] * 1000).getFullYear();
+      if (!byYear[year]) byYear[year] = [];
+      byYear[year].push(price);
     }
 
-    const annualReturns: { year: number; return: number }[] = [];
     const sortedYears = Object.keys(byYear).map(Number).sort();
+    if (sortedYears.length < 3) return null;
 
+    // Annual return = last price of year / last price of previous year - 1
+    const annualReturns: { year: number; return: number }[] = [];
     for (let i = 1; i < sortedYears.length; i++) {
-      const prevYear = sortedYears[i - 1];
-      const currYear = sortedYears[i];
-      const prevPrices = byYear[prevYear].prices;
-      const currPrices = byYear[currYear].prices;
-      const startPrice = prevPrices[prevPrices.length - 1];
-      const endPrice = currPrices[currPrices.length - 1];
+      const prev = byYear[sortedYears[i - 1]];
+      const curr = byYear[sortedYears[i]];
+      const startPrice = prev[prev.length - 1];
+      const endPrice = curr[curr.length - 1];
       if (startPrice > 0) {
-        annualReturns.push({ year: currYear, return: (endPrice - startPrice) / startPrice });
+        annualReturns.push({ year: sortedYears[i], return: (endPrice - startPrice) / startPrice });
       }
     }
 
     if (annualReturns.length < 2) return null;
 
-    const returns = annualReturns.map(r => r.return).sort((a, b) => a - b);
-    const best = returns[returns.length - 1];
-    const worst = returns[0];
-    const med = median(returns);
-    const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-    const variance = returns.reduce((s, r) => s + Math.pow(r - mean, 2), 0) / returns.length;
+    const sorted = annualReturns.map(r => r.return).sort((a, b) => a - b);
+    const best = sorted[sorted.length - 1];
+    const worst = sorted[0];
+    const med = median(sorted);
+    const mean = sorted.reduce((a, b) => a + b, 0) / sorted.length;
+    const variance = sorted.reduce((s, r) => s + Math.pow(r - mean, 2), 0) / sorted.length;
     const volatility = Math.sqrt(variance);
 
-    // CAGR over full period
-    const firstPrices = byYear[sortedYears[0]].prices;
-    const lastPrices = byYear[sortedYears[sortedYears.length - 1]].prices;
-    const startPrice = firstPrices[0];
-    const endPrice = lastPrices[lastPrices.length - 1];
-    const years = history.length / 12;
+    // CAGR: first price to last price over full period
+    const allPrices = closes.filter((p): p is number => !!p && p > 0);
+    const startPrice = allPrices[0];
+    const endPrice = allPrices[allPrices.length - 1];
+    const years = timestamps.length / 12;
     const cagr = startPrice > 0 ? Math.pow(endPrice / startPrice, 1 / years) - 1 : 0;
 
     return {
@@ -90,9 +97,9 @@ async function generateAIAnalysis(
   targetReturn: number,
   availableCash: number,
 ): Promise<string> {
-  const holdingsSummary = stats.map(s => {
+  const summary = stats.map(s => {
     const h = holdings.find(h => h.ticker === s.ticker);
-    return `${s.ticker}: CAGR ${(s.cagr * 100).toFixed(1)}%, Best year ${(s.best_year * 100).toFixed(1)}%, Worst year ${(s.worst_year * 100).toFixed(1)}%, Median ${(s.median_year * 100).toFixed(1)}%, Volatility ${(s.volatility * 100).toFixed(1)}%, ${s.years_of_data} years of data${h?.value ? `, Current value $${h.value.toLocaleString()}` : ''}`;
+    return `${s.ticker}: CAGR ${(s.cagr * 100).toFixed(1)}%, Best year ${(s.best_year * 100).toFixed(1)}%, Worst year ${(s.worst_year * 100).toFixed(1)}%, Median ${(s.median_year * 100).toFixed(1)}%, Volatility ${(s.volatility * 100).toFixed(1)}%, ${s.years_of_data} yrs data${h?.value ? `, value $${h.value.toLocaleString()}` : ''}`;
   }).join('\n');
 
   const message = await anthropic.messages.create({
@@ -100,21 +107,21 @@ async function generateAIAnalysis(
     max_tokens: 1024,
     messages: [{
       role: 'user',
-      content: `You are a portfolio analyst. Analyze this portfolio of ${stats.length} holdings based on 20-year historical data.
+      content: `You are a portfolio analyst. Analyze this portfolio of ${stats.length} holdings based on historical data.
 
-Holdings performance:
-${holdingsSummary}
+Holdings:
+${summary}
 
-User's target: ${(targetReturn * 100).toFixed(1)}% annual return
-Available to invest: $${availableCash.toLocaleString()}
+Target: ${(targetReturn * 100).toFixed(1)}% annual return
+Cash to invest: $${availableCash.toLocaleString()}
 
-Write a concise 3-4 paragraph analysis covering:
-1. Overall portfolio quality and historical performance assessment
-2. Standout performers and underperformers / high-risk holdings
-3. Whether the ${(targetReturn * 100).toFixed(1)}% target is realistic given historical data, and what risk that implies
-4. One or two specific recommendations for weight allocation strategy given the available cash
+Write a concise 3-4 paragraph analysis:
+1. Overall portfolio quality and historical performance
+2. Standout performers and high-risk holdings
+3. Whether the ${(targetReturn * 100).toFixed(1)}% target is realistic and what risk it implies
+4. Weight allocation strategy recommendations given the available cash
 
-Be direct and specific. Use actual numbers from the data. No fluff.`,
+Be direct, use specific numbers, no fluff.`,
     }],
   });
 
@@ -133,29 +140,21 @@ export async function POST(request: NextRequest) {
     available_cash?: number;
   };
 
-  if (!holdings?.length) {
-    return NextResponse.json({ error: 'No holdings provided' }, { status: 400 });
-  }
+  if (!holdings?.length) return NextResponse.json({ error: 'No holdings provided' }, { status: 400 });
 
   const tickers = [...new Set(holdings.map(h => h.ticker))].slice(0, 25);
 
-  // Fetch historical stats in parallel
   const results = await Promise.all(tickers.map(fetchHistoricalStats));
   const stats = results.filter((s): s is HoldingHistoricalStats => s !== null);
 
   if (stats.length === 0) {
-    return NextResponse.json({ error: 'Could not fetch historical data for any holdings' }, { status: 400 });
+    return NextResponse.json({ error: 'Could not fetch historical data. Yahoo Finance may be temporarily unavailable — please try again.' }, { status: 400 });
   }
 
-  // Portfolio-level blended best/worst/median (equal-weight estimate)
-  const allBestYears = stats.map(s => s.best_year);
-  const allWorstYears = stats.map(s => s.worst_year);
-  const allMedians = stats.map(s => s.median_year);
-  const portfolioBest = allBestYears.reduce((a, b) => a + b, 0) / allBestYears.length;
-  const portfolioWorst = allWorstYears.reduce((a, b) => a + b, 0) / allWorstYears.length;
-  const portfolioMedian = allMedians.reduce((a, b) => a + b, 0) / allMedians.length;
+  const portfolioBest = stats.reduce((s, h) => s + h.best_year, 0) / stats.length;
+  const portfolioWorst = stats.reduce((s, h) => s + h.worst_year, 0) / stats.length;
+  const portfolioMedian = stats.reduce((s, h) => s + h.median_year, 0) / stats.length;
 
-  // AI analysis
   let aiNarrative = '';
   try {
     aiNarrative = await generateAIAnalysis(stats, holdings, target_return, available_cash);

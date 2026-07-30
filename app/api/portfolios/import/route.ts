@@ -91,25 +91,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No holdings found in file.' }, { status: 400 });
   }
 
-  // Fetch live prices from Yahoo Finance
+  // Fetch live prices via Yahoo Finance chart API (no library, no instantiation issues)
   const uniqueTickers = [...new Set(holdings.map(h => h.ticker))].slice(0, 30);
-  const yahooFinance = (await import('yahoo-finance2')).default;
   const quoteMap: Record<string, { price: number; year_return?: number; name?: string; asset_type?: 'stock' | 'etf' | 'bond' }> = {};
 
   await Promise.allSettled(
     uniqueTickers.map(async (ticker) => {
       try {
-        const summary = await yahooFinance.quoteSummary(ticker, {
-          modules: ['price', 'defaultKeyStatistics'],
-        });
-        const price = (summary as any).price;
-        const stats = (summary as any).defaultKeyStatistics;
-        const yearReturn = stats?.['52WeekChange'];
-        const quoteType = price?.quoteType?.toUpperCase();
+        const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1y`;
+        const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const json = await res.json() as any;
+        const result = json?.chart?.result?.[0];
+        const meta = result?.meta;
+        if (!meta) { quoteMap[ticker] = { price: 0 }; return; }
+
+        const closes: number[] = (result?.indicators?.quote?.[0]?.close ?? []).filter(Boolean);
+        const yearReturn = closes.length >= 2
+          ? (closes[closes.length - 1] - closes[0]) / closes[0]
+          : undefined;
+
+        const quoteType = meta.instrumentType?.toUpperCase();
         quoteMap[ticker] = {
-          price: price?.regularMarketPrice ?? 0,
-          year_return: typeof yearReturn === 'number' ? yearReturn : undefined,
-          name: price?.longName || price?.shortName || ticker,
+          price: meta.regularMarketPrice ?? meta.chartPreviousClose ?? 0,
+          year_return: yearReturn,
+          name: meta.longName || meta.shortName || ticker,
           asset_type: quoteType === 'ETF' || quoteType === 'MUTUALFUND' ? 'etf'
             : quoteType === 'BOND' ? 'bond' : 'stock',
         };
