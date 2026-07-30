@@ -14,6 +14,7 @@ export interface ImportedHolding {
   shares: number;
   value?: number;
   name?: string;
+  description?: string;
   price?: number;
   year_return?: number;
   asset_type?: 'stock' | 'etf' | 'bond';

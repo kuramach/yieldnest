@@ -137,5 +137,33 @@ export async function POST(request: NextRequest) {
     };
   });
 
-  return NextResponse.json({ holdings: enriched });
+  // Batch-fetch one-line investment philosophy descriptions for all tickers
+  let descMap: Record<string, string> = {};
+  try {
+    const tickerList = enriched.map(h => `${h.ticker} (${h.name || h.ticker})`).join(', ');
+    const msg = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 1024,
+      messages: [{
+        role: 'user',
+        content: `For each of these securities, write a single sentence (max 15 words) describing its investment philosophy or what it holds/represents. Return ONLY a JSON object mapping ticker symbol to description string. No explanation.
+
+Securities: ${tickerList}
+
+Example format: {"AAPL": "Growth-oriented tech giant focused on premium consumer devices and services ecosystem.", "BND": "Broad US bond market ETF providing stable income and capital preservation."}`,
+      }],
+    });
+    const text = msg.content[0].type === 'text' ? msg.content[0].text.trim() : '{}';
+    const clean = text.replace(/^```json\n?/, '').replace(/^```\n?/, '').replace(/\n?```$/, '');
+    descMap = JSON.parse(clean);
+  } catch {
+    // descriptions are optional, don't fail the whole request
+  }
+
+  const withDescriptions = enriched.map(h => ({
+    ...h,
+    description: descMap[h.ticker] || undefined,
+  }));
+
+  return NextResponse.json({ holdings: withDescriptions });
 }

@@ -271,7 +271,7 @@ export default function ImportPage() {
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
                     <th className="text-left px-5 py-2.5 font-medium text-slate-500">Ticker</th>
-                    <th className="text-left px-4 py-2.5 font-medium text-slate-500">Name</th>
+                    <th className="text-left px-4 py-2.5 font-medium text-slate-500">Name &amp; Philosophy</th>
                     <th className="text-right px-4 py-2.5 font-medium text-slate-500">Shares</th>
                     <th className="text-right px-4 py-2.5 font-medium text-slate-500">Price</th>
                     <th className="text-right px-4 py-2.5 font-medium text-slate-500">Value</th>
@@ -281,12 +281,17 @@ export default function ImportPage() {
                 <tbody className="divide-y divide-slate-50">
                   {holdings.map(h => (
                     <tr key={h.ticker} className="hover:bg-slate-50">
-                      <td className="px-5 py-2.5 font-mono font-semibold text-slate-900">{h.ticker}</td>
-                      <td className="px-4 py-2.5 text-slate-500 max-w-[160px] truncate">{h.name || '—'}</td>
-                      <td className="px-4 py-2.5 text-right text-slate-700">{h.shares > 0 ? h.shares.toLocaleString() : '—'}</td>
-                      <td className="px-4 py-2.5 text-right text-slate-700">{h.price ? fmtUsd(h.price) : '—'}</td>
-                      <td className="px-4 py-2.5 text-right text-slate-700">{fmtUsd(h.value)}</td>
-                      <td className={`px-5 py-2.5 text-right font-semibold ${h.year_return == null ? 'text-slate-300' : h.year_return >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                      <td className="px-5 py-3 font-mono font-semibold text-slate-900 align-top">{h.ticker}</td>
+                      <td className="px-4 py-3 max-w-[260px]">
+                        <p className="text-sm font-medium text-slate-700 truncate">{h.name || '—'}</p>
+                        {h.description && (
+                          <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">{h.description}</p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right text-slate-700 align-top">{h.shares > 0 ? h.shares.toLocaleString() : '—'}</td>
+                      <td className="px-4 py-3 text-right text-slate-700 align-top">{h.price ? fmtUsd(h.price) : '—'}</td>
+                      <td className="px-4 py-3 text-right text-slate-700 align-top">{fmtUsd(h.value)}</td>
+                      <td className={`px-5 py-3 text-right font-semibold align-top ${h.year_return == null ? 'text-slate-300' : h.year_return >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
                         {pct(h.year_return)}
                       </td>
                     </tr>
@@ -379,9 +384,14 @@ export default function ImportPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {analysis.stats.map(s => (
+                  {analysis.stats.map(s => {
+                    const h = holdings.find(h => h.ticker === s.ticker);
+                    return (
                     <tr key={s.ticker} className="hover:bg-slate-50">
-                      <td className="px-5 py-3 font-mono font-semibold text-slate-900">{s.ticker}</td>
+                      <td className="px-5 py-3 align-top">
+                        <p className="font-mono font-semibold text-slate-900">{s.ticker}</p>
+                        {h?.description && <p className="text-xs text-slate-400 mt-0.5 max-w-[160px] leading-relaxed">{h.description}</p>}
+                      </td>
                       <td className={`px-4 py-3 text-right font-bold ${s.cagr >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{pct(s.cagr)}</td>
                       <td className="px-4 py-3 text-right">
                         <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">{pct(s.best_year)}</span>
@@ -395,7 +405,7 @@ export default function ImportPage() {
                       <td className="px-4 py-3 text-right text-slate-500">{pct(s.volatility)}</td>
                       <td className="px-5 py-3 text-right text-slate-400">{s.years_of_data}y</td>
                     </tr>
-                  ))}
+                  );})}
                 </tbody>
               </table>
             </div>
