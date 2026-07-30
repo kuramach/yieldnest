@@ -1,6 +1,6 @@
 'use client';
 
-import { use, useState, useEffect, useCallback, useMemo, Suspense } from 'react';
+import { use, useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Play, RefreshCw } from 'lucide-react';
 
@@ -24,7 +24,6 @@ interface SimInput {
 }
 
 interface SimOutput {
-  paths: number[][];          // [simIndex][yearIndex] — value at end of each year
   percentiles: number[][];    // [yearIndex][pctIndex] — p5,p10,p25,p50,p75,p90,p95
   finalValues: number[];
   probGrowth: number;
@@ -35,45 +34,57 @@ interface SimOutput {
 }
 
 const PCT_LEVELS = [0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95];
+const CHUNK_SIZE = 1000;
 
-function runSimulation(input: SimInput): SimOutput {
+function runSimulationChunked(
+  input: SimInput,
+  onProgress: (pct: number) => void,
+  onDone: (result: SimOutput) => void,
+): () => void {
   const { meanReturn, volatility, initialValue, years, annualWithdrawal, simCount } = input;
-  const paths: number[][] = [];
+  // yearData[y] accumulates all sim values for year y (avoids storing full path matrix)
+  const yearData: number[][] = Array.from({ length: years }, () => []);
+  let done = 0;
+  let cancelled = false;
 
-  for (let s = 0; s < simCount; s++) {
-    const path: number[] = [];
-    let value = initialValue;
-    for (let y = 0; y < years; y++) {
-      const r = randNormal(meanReturn, volatility);
-      value = value * (1 + r) - annualWithdrawal;
-      path.push(Math.max(value, 0));
-      if (value <= 0) {
-        // Portfolio exhausted — fill remaining years with 0
-        for (let rem = y + 1; rem < years; rem++) path.push(0);
-        break;
+  function runChunk() {
+    if (cancelled) return;
+    const end = Math.min(done + CHUNK_SIZE, simCount);
+    for (let s = done; s < end; s++) {
+      let value = initialValue;
+      for (let y = 0; y < years; y++) {
+        const r = randNormal(meanReturn, volatility);
+        value = value * (1 + r) - annualWithdrawal;
+        const clamped = Math.max(value, 0);
+        yearData[y].push(clamped);
+        if (value <= 0) {
+          for (let rem = y + 1; rem < years; rem++) yearData[rem].push(0);
+          break;
+        }
       }
     }
-    paths.push(path);
+    done = end;
+    onProgress(done / simCount);
+
+    if (done < simCount) {
+      setTimeout(runChunk, 0);
+    } else {
+      const percentiles: number[][] = yearData.map(vals => {
+        const sorted = [...vals].sort((a, b) => a - b);
+        return PCT_LEVELS.map(pct => sorted[Math.min(Math.floor(pct * simCount), simCount - 1)]);
+      });
+      const finalValues = [...yearData[years - 1]].sort((a, b) => a - b);
+      const probRuin = finalValues.filter(v => v <= 0).length / simCount;
+      const probGrowth = finalValues.filter(v => v > initialValue).length / simCount;
+      const median = finalValues[Math.floor(simCount * 0.5)];
+      const p10 = finalValues[Math.floor(simCount * 0.10)];
+      const p90 = finalValues[Math.floor(simCount * 0.90)];
+      onDone({ percentiles, finalValues, probGrowth, probRuin, median, p10, p90 });
+    }
   }
 
-  // Compute percentiles per year
-  const percentiles: number[][] = [];
-  for (let y = 0; y < years; y++) {
-    const yearVals = paths.map(p => p[y]).sort((a, b) => a - b);
-    percentiles.push(PCT_LEVELS.map(pct => {
-      const idx = Math.min(Math.floor(pct * simCount), simCount - 1);
-      return yearVals[idx];
-    }));
-  }
-
-  const finalValues = paths.map(p => p[years - 1]).sort((a, b) => a - b);
-  const probRuin = finalValues.filter(v => v <= 0).length / simCount;
-  const probGrowth = finalValues.filter(v => v > initialValue).length / simCount;
-  const median = finalValues[Math.floor(simCount * 0.5)];
-  const p10 = finalValues[Math.floor(simCount * 0.10)];
-  const p90 = finalValues[Math.floor(simCount * 0.90)];
-
-  return { paths, percentiles, finalValues, probGrowth, probRuin, median, p10, p90 };
+  setTimeout(runChunk, 0);
+  return () => { cancelled = true; };
 }
 
 // ── SVG Fan Chart ─────────────────────────────────────────────────────────────
@@ -233,6 +244,8 @@ function MonteCarloInner({ id }: { id: string }) {
 
   const [result, setResult] = useState<SimOutput | null>(null);
   const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const cancelRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     fetch(`/api/portfolios/${id}/monte-carlo-data`)
@@ -255,23 +268,18 @@ function MonteCarloInner({ id }: { id: string }) {
   }, [portfolio]);
 
   const runSim = useCallback(() => {
+    if (cancelRef.current) cancelRef.current();
     setRunning(true);
-    setTimeout(() => {
-      const r = runSimulation({
-        meanReturn: blendedReturn,
-        volatility: volatility / 100,
-        initialValue,
-        years,
-        annualWithdrawal: withdrawal,
-        simCount,
-      });
-      setResult(r);
-      setRunning(false);
-    }, 10);
+    setProgress(0);
+    cancelRef.current = runSimulationChunked(
+      { meanReturn: blendedReturn, volatility: volatility / 100, initialValue, years, annualWithdrawal: withdrawal, simCount },
+      (pct) => setProgress(Math.round(pct * 100)),
+      (r) => { setResult(r); setRunning(false); cancelRef.current = null; },
+    );
   }, [blendedReturn, volatility, initialValue, years, withdrawal, simCount]);
 
   // Auto-run on first load once portfolio is loaded
-  useEffect(() => { if (portfolio && !result) runSim(); }, [portfolio]);
+  useEffect(() => { if (portfolio && !result) runSim(); }, [portfolio]); // eslint-disable-line
 
   if (loading) {
     return (
@@ -313,11 +321,21 @@ function MonteCarloInner({ id }: { id: string }) {
             </select>
           </div>
         </div>
-        <button onClick={runSim} disabled={running}
-          className="flex items-center gap-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50">
-          {running ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-          {running ? 'Simulating…' : 'Run Simulation'}
-        </button>
+        <div className="flex items-center gap-4">
+          <button onClick={runSim} disabled={running}
+            className="flex items-center gap-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50">
+            {running ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+            {running ? 'Simulating…' : 'Run Simulation'}
+          </button>
+          {running && (
+            <div className="flex items-center gap-2 flex-1 max-w-xs">
+              <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
+                <div className="h-2 bg-emerald-500 rounded-full transition-all duration-100" style={{ width: `${progress}%` }} />
+              </div>
+              <span className="text-xs text-slate-500 w-8 text-right">{progress}%</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {result && (
