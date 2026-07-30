@@ -21,8 +21,8 @@ async function fetchHistoricalStats(ticker: string): Promise<HoldingHistoricalSt
 
     const history = await yahooFinance.historical(ticker, {
       period1,
-      interval: '1mo',
-    });
+      interval: '1mo' as const,
+    }) as Array<{ date: Date; close: number; adjclose?: number }>;
 
     if (!history || history.length < 12) return null;
 
