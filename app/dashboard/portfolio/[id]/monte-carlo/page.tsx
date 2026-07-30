@@ -1,90 +1,19 @@
 'use client';
 
-import { use, useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react';
+import { use, useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Play, RefreshCw } from 'lucide-react';
 
-// ── Simulation ────────────────────────────────────────────────────────────────
-
-function randNormal(mean: number, std: number): number {
-  // Box-Muller transform
-  const u1 = Math.random() || 1e-10;
-  const u2 = Math.random();
-  const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-  return mean + std * z;
-}
-
-interface SimInput {
-  meanReturn: number;   // annual mean (e.g. 0.07)
-  volatility: number;   // annual std dev (e.g. 0.12)
-  initialValue: number;
-  years: number;
-  annualWithdrawal: number;
-  simCount: number;
-}
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface SimOutput {
-  percentiles: number[][];    // [yearIndex][pctIndex] — p5,p10,p25,p50,p75,p90,p95
+  percentiles: number[][];
   finalValues: number[];
   probGrowth: number;
   probRuin: number;
   median: number;
   p10: number;
   p90: number;
-}
-
-const PCT_LEVELS = [0.05, 0.10, 0.25, 0.50, 0.75, 0.90, 0.95];
-const CHUNK_SIZE = 1000;
-
-function runSimulationChunked(
-  input: SimInput,
-  onProgress: (pct: number) => void,
-  onDone: (result: SimOutput) => void,
-): () => void {
-  const { meanReturn, volatility, initialValue, years, annualWithdrawal, simCount } = input;
-  // yearData[y] accumulates all sim values for year y (avoids storing full path matrix)
-  const yearData: number[][] = Array.from({ length: years }, () => []);
-  let done = 0;
-  let cancelled = false;
-
-  function runChunk() {
-    if (cancelled) return;
-    const end = Math.min(done + CHUNK_SIZE, simCount);
-    for (let s = done; s < end; s++) {
-      let value = initialValue;
-      for (let y = 0; y < years; y++) {
-        const r = randNormal(meanReturn, volatility);
-        value = value * (1 + r) - annualWithdrawal;
-        const clamped = Math.max(value, 0);
-        yearData[y].push(clamped);
-        if (value <= 0) {
-          for (let rem = y + 1; rem < years; rem++) yearData[rem].push(0);
-          break;
-        }
-      }
-    }
-    done = end;
-    onProgress(done / simCount);
-
-    if (done < simCount) {
-      setTimeout(runChunk, 0);
-    } else {
-      const percentiles: number[][] = yearData.map(vals => {
-        const sorted = [...vals].sort((a, b) => a - b);
-        return PCT_LEVELS.map(pct => sorted[Math.min(Math.floor(pct * simCount), simCount - 1)]);
-      });
-      const finalValues = [...yearData[years - 1]].sort((a, b) => a - b);
-      const probRuin = finalValues.filter(v => v <= 0).length / simCount;
-      const probGrowth = finalValues.filter(v => v > initialValue).length / simCount;
-      const median = finalValues[Math.floor(simCount * 0.5)];
-      const p10 = finalValues[Math.floor(simCount * 0.10)];
-      const p90 = finalValues[Math.floor(simCount * 0.90)];
-      onDone({ percentiles, finalValues, probGrowth, probRuin, median, p10, p90 });
-    }
-  }
-
-  setTimeout(runChunk, 0);
-  return () => { cancelled = true; };
 }
 
 // ── SVG Fan Chart ─────────────────────────────────────────────────────────────
@@ -96,13 +25,12 @@ const PLOT_H = H - PAD.top - PAD.bottom;
 
 function FanChart({ result, years, initialValue }: { result: SimOutput; years: number; initialValue: number }) {
   const maxVal = Math.max(...result.percentiles.map(p => p[6])) * 1.05;
-  const minVal = 0;
 
   function xScale(year: number) {
-    return PAD.left + (year / (years - 1)) * PLOT_W;
+    return PAD.left + (year / Math.max(years - 1, 1)) * PLOT_W;
   }
   function yScale(val: number) {
-    return PAD.top + PLOT_H - ((val - minVal) / (maxVal - minVal)) * PLOT_H;
+    return PAD.top + PLOT_H - (val / maxVal) * PLOT_H;
   }
   function pathD(values: number[]) {
     return values.map((v, i) => `${i === 0 ? 'M' : 'L'} ${xScale(i).toFixed(1)} ${yScale(v).toFixed(1)}`).join(' ');
@@ -114,10 +42,9 @@ function FanChart({ result, years, initialValue }: { result: SimOutput; years: n
   }
 
   const pct = (i: number) => result.percentiles.map(yr => yr[i]);
-
-  // Y-axis ticks
   const tickCount = 5;
-  const yTicks = Array.from({ length: tickCount + 1 }, (_, i) => minVal + (maxVal - minVal) * (i / tickCount));
+  const yTicks = Array.from({ length: tickCount + 1 }, (_, i) => maxVal * (i / tickCount));
+  const xTicks = Array.from({ length: years }, (_, i) => i).filter(i => i % 5 === 0 || i === years - 1);
 
   function fmtVal(v: number) {
     if (v >= 1e6) return `$${(v / 1e6).toFixed(1)}M`;
@@ -125,26 +52,17 @@ function FanChart({ result, years, initialValue }: { result: SimOutput; years: n
     return `$${v.toFixed(0)}`;
   }
 
-  // X-axis: every 5 years
-  const xTicks = Array.from({ length: years }, (_, i) => i).filter(i => i % 5 === 0 || i === years - 1);
-
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">
-      {/* Bands: p5–p95 */}
       <path d={bandD(pct(0), pct(6))} fill="#d1fae5" opacity={0.5} />
-      {/* p10–p90 */}
       <path d={bandD(pct(1), pct(5))} fill="#6ee7b7" opacity={0.5} />
-      {/* p25–p75 */}
       <path d={bandD(pct(2), pct(4))} fill="#34d399" opacity={0.5} />
-      {/* p50 median */}
       <path d={pathD(pct(3))} fill="none" stroke="#059669" strokeWidth={2.5} strokeLinejoin="round" />
 
-      {/* Initial value reference line */}
       <line x1={PAD.left} x2={W - PAD.right} y1={yScale(initialValue)} y2={yScale(initialValue)}
         stroke="#94a3b8" strokeWidth={1} strokeDasharray="4 4" />
       <text x={PAD.left + 4} y={yScale(initialValue) - 4} fontSize={9} fill="#94a3b8">Starting value</text>
 
-      {/* Y-axis */}
       {yTicks.map((v, i) => (
         <g key={i}>
           <line x1={PAD.left - 4} x2={PAD.left} y1={yScale(v)} y2={yScale(v)} stroke="#cbd5e1" />
@@ -153,7 +71,6 @@ function FanChart({ result, years, initialValue }: { result: SimOutput; years: n
         </g>
       ))}
 
-      {/* X-axis */}
       {xTicks.map(i => (
         <g key={i}>
           <line x1={xScale(i)} x2={xScale(i)} y1={PAD.top + PLOT_H} y2={PAD.top + PLOT_H + 4} stroke="#cbd5e1" />
@@ -161,11 +78,9 @@ function FanChart({ result, years, initialValue }: { result: SimOutput; years: n
         </g>
       ))}
 
-      {/* Axes */}
       <line x1={PAD.left} x2={PAD.left} y1={PAD.top} y2={PAD.top + PLOT_H} stroke="#cbd5e1" />
       <line x1={PAD.left} x2={W - PAD.right} y1={PAD.top + PLOT_H} y2={PAD.top + PLOT_H} stroke="#cbd5e1" />
 
-      {/* Legend */}
       {[
         { color: '#d1fae5', label: '5th–95th %ile' },
         { color: '#6ee7b7', label: '10th–90th %ile' },
@@ -220,39 +135,36 @@ function StatCard({ label, value, sub, color = 'slate' }: { label: string; value
   );
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
-
 function fmtMoney(v: number) {
   if (v >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
   if (v >= 1e3) return `$${(v / 1e3).toFixed(0)}K`;
   return `$${v.toFixed(0)}`;
 }
 
+// ── Page ──────────────────────────────────────────────────────────────────────
+
 interface BucketRow { id: number; name: string; target_return: number; initial_amount: number }
 
 function MonteCarloInner({ id }: { id: string }) {
-
   const [portfolio, setPortfolio] = useState<{ name: string; buckets: BucketRow[] } | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Controls
   const [initialValue, setInitialValue] = useState(100000);
   const [years, setYears] = useState(20);
   const [withdrawal, setWithdrawal] = useState(0);
-  const [volatility, setVolatility] = useState(12);   // % — user override
+  const [volatility, setVolatility] = useState(12);
   const [simCount, setSimCount] = useState(1000);
 
   const [result, setResult] = useState<SimOutput | null>(null);
   const [running, setRunning] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const cancelRef = useRef<(() => void) | null>(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     fetch(`/api/portfolios/${id}/monte-carlo-data`)
       .then(r => r.json())
       .then(data => {
         setPortfolio(data);
-        if (data.buckets?.[0]) {
+        if (data.buckets?.length) {
           setInitialValue(data.buckets.reduce((s: number, b: BucketRow) => s + b.initial_amount, 0) || 100000);
         }
       })
@@ -260,25 +172,30 @@ function MonteCarloInner({ id }: { id: string }) {
       .finally(() => setLoading(false));
   }, [id]);
 
-  // Blended portfolio return from bucket weights
   const blendedReturn = useMemo(() => {
     if (!portfolio?.buckets?.length) return 0.07;
     const total = portfolio.buckets.reduce((s, b) => s + b.initial_amount, 0) || 1;
     return portfolio.buckets.reduce((s, b) => s + b.target_return * (b.initial_amount / total), 0);
   }, [portfolio]);
 
-  const runSim = useCallback(() => {
-    if (cancelRef.current) cancelRef.current();
+  const runSim = useCallback(async () => {
     setRunning(true);
-    setProgress(0);
-    cancelRef.current = runSimulationChunked(
-      { meanReturn: blendedReturn, volatility: volatility / 100, initialValue, years, annualWithdrawal: withdrawal, simCount },
-      (pct) => setProgress(Math.round(pct * 100)),
-      (r) => { setResult(r); setRunning(false); cancelRef.current = null; },
-    );
-  }, [blendedReturn, volatility, initialValue, years, withdrawal, simCount]);
+    setError('');
+    try {
+      const res = await fetch(`/api/portfolios/${id}/monte-carlo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ meanReturn: blendedReturn, volatility: volatility / 100, initialValue, years, annualWithdrawal: withdrawal, simCount }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setResult(await res.json());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Simulation failed');
+    } finally {
+      setRunning(false);
+    }
+  }, [id, blendedReturn, volatility, initialValue, years, withdrawal, simCount]);
 
-  // Auto-run on first load once portfolio is loaded
   useEffect(() => { if (portfolio && !result) runSim(); }, [portfolio]); // eslint-disable-line
 
   if (loading) {
@@ -307,7 +224,7 @@ function MonteCarloInner({ id }: { id: string }) {
       <div className="bg-white border border-slate-200 rounded-2xl p-5 mb-6">
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-4">
           <NumInput label="Starting Value" value={initialValue} onChange={setInitialValue} prefix="$" min={0} step={1000} />
-          <NumInput label="Time Horizon" value={years} onChange={v => setYears(Math.max(1, Math.min(40, v)))} suffix="yrs" min={1} max={40} />
+          <NumInput label="Time Horizon" value={years} onChange={v => setYears(Math.max(1, Math.min(50, v)))} suffix="yrs" min={1} max={50} />
           <NumInput label="Annual Withdrawal" value={withdrawal} onChange={setWithdrawal} prefix="$" min={0} step={1000} />
           <NumInput label="Volatility (override)" value={volatility} onChange={setVolatility} suffix="%" min={1} max={60} />
           <div>
@@ -321,26 +238,16 @@ function MonteCarloInner({ id }: { id: string }) {
             </select>
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          <button onClick={runSim} disabled={running}
-            className="flex items-center gap-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50">
-            {running ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            {running ? 'Simulating…' : 'Run Simulation'}
-          </button>
-          {running && (
-            <div className="flex items-center gap-2 flex-1 max-w-xs">
-              <div className="flex-1 bg-slate-100 rounded-full h-2 overflow-hidden">
-                <div className="h-2 bg-emerald-500 rounded-full transition-all duration-100" style={{ width: `${progress}%` }} />
-              </div>
-              <span className="text-xs text-slate-500 w-8 text-right">{progress}%</span>
-            </div>
-          )}
-        </div>
+        <button onClick={runSim} disabled={running}
+          className="flex items-center gap-2 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50">
+          {running ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+          {running ? 'Simulating…' : 'Run Simulation'}
+        </button>
+        {error && <p className="text-sm text-rose-500 mt-2">{error}</p>}
       </div>
 
       {result && (
         <>
-          {/* Key metrics */}
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
             <StatCard label="Median Outcome" value={fmtMoney(result.median)}
               sub={`${result.median >= initialValue ? '+' : ''}${(((result.median - initialValue) / initialValue) * 100).toFixed(0)}% vs start`}
@@ -353,33 +260,31 @@ function MonteCarloInner({ id }: { id: string }) {
               sub="portfolio hits $0" color={result.probRuin > 0.1 ? 'rose' : 'slate'} />
           </div>
 
-          {/* Fan chart */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5 mb-6">
             <h2 className="font-semibold text-slate-800 mb-4">Portfolio Value Over Time</h2>
             <FanChart result={result} years={years} initialValue={initialValue} />
           </div>
 
-          {/* Final value distribution */}
           <div className="bg-white border border-slate-200 rounded-2xl p-5">
             <h2 className="font-semibold text-slate-800 mb-4">Final Value Distribution</h2>
             <div className="grid grid-cols-7 gap-2 text-center text-sm">
               {[
-                { pct: '5th', val: result.finalValues[Math.floor(simCount * 0.05)], color: 'text-rose-500' },
-                { pct: '10th', val: result.finalValues[Math.floor(simCount * 0.10)], color: 'text-orange-500' },
-                { pct: '25th', val: result.finalValues[Math.floor(simCount * 0.25)], color: 'text-amber-500' },
-                { pct: '50th', val: result.finalValues[Math.floor(simCount * 0.50)], color: 'text-emerald-600' },
-                { pct: '75th', val: result.finalValues[Math.floor(simCount * 0.75)], color: 'text-emerald-700' },
-                { pct: '90th', val: result.finalValues[Math.floor(simCount * 0.90)], color: 'text-blue-600' },
-                { pct: '95th', val: result.finalValues[Math.floor(simCount * 0.95)], color: 'text-blue-700' },
-              ].map(({ pct, val, color }) => (
+                { pct: '5th', idx: Math.floor(simCount * 0.05), color: 'text-rose-500' },
+                { pct: '10th', idx: Math.floor(simCount * 0.10), color: 'text-orange-500' },
+                { pct: '25th', idx: Math.floor(simCount * 0.25), color: 'text-amber-500' },
+                { pct: '50th', idx: Math.floor(simCount * 0.50), color: 'text-emerald-600' },
+                { pct: '75th', idx: Math.floor(simCount * 0.75), color: 'text-emerald-700' },
+                { pct: '90th', idx: Math.floor(simCount * 0.90), color: 'text-blue-600' },
+                { pct: '95th', idx: Math.floor(simCount * 0.95), color: 'text-blue-700' },
+              ].map(({ pct, idx, color }) => (
                 <div key={pct} className="bg-slate-50 rounded-xl p-3">
                   <p className="text-xs text-slate-400 mb-1">{pct} %ile</p>
-                  <p className={`font-bold text-sm ${color}`}>{fmtMoney(val)}</p>
+                  <p className={`font-bold text-sm ${color}`}>{fmtMoney(result.finalValues[Math.min(idx, result.finalValues.length - 1)])}</p>
                 </div>
               ))}
             </div>
             <p className="text-xs text-slate-400 mt-4 text-center">
-              Assumes {(blendedReturn * 100).toFixed(1)}% mean annual return · {volatility}% volatility · {years}-year horizon · {withdrawal > 0 ? `$${withdrawal.toLocaleString()}/yr withdrawal` : 'no withdrawals'} · {simCount.toLocaleString()} simulations · returns are independent and normally distributed
+              Assumes {(blendedReturn * 100).toFixed(1)}% mean annual return · {volatility}% volatility · {years}-year horizon · {withdrawal > 0 ? `$${withdrawal.toLocaleString()}/yr withdrawal` : 'no withdrawals'} · {simCount.toLocaleString()} simulations
             </p>
           </div>
         </>
@@ -393,7 +298,7 @@ export default function MonteCarloPage({ params }: { params: Promise<{ id: strin
   return (
     <Suspense fallback={
       <div className="p-8 flex items-center gap-3 text-slate-400">
-        <RefreshCw className="w-5 h-5 animate-spin" /> Loading portfolio…
+        <RefreshCw className="w-5 h-5 animate-spin" /> Loading…
       </div>
     }>
       <MonteCarloInner id={id} />
