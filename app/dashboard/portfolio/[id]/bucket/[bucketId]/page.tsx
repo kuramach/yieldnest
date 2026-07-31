@@ -6,6 +6,7 @@ import ReturnBar from '@/components/ReturnBar';
 import BucketDetailClient from './BucketDetailClient';
 import type { BucketHolding, SecurityQuote, TickerRating } from '@/lib/types';
 import { fetchYahooQuoteSummary } from '@/lib/yahoo-crumb';
+import { fetchQuotes } from '@/lib/yahoo-quotes';
 
 async function fetchRatings(tickers: string[]): Promise<Record<string, TickerRating>> {
   const results = await Promise.allSettled(tickers.map(async (ticker) => {
@@ -60,28 +61,26 @@ export default async function BucketDetailPage({ params }: Props) {
     .eq('bucket_id', bucketIdNum)
     .order('added_at', { ascending: true });
 
-  // Fetch live quotes and ratings in parallel
-  let quotes: SecurityQuote[] = [];
+  // Fetch live quotes and ratings in parallel (directly, no internal API round-trip)
+  let quoteMap2: Record<string, { price: number; year_return?: number; name: string }> = {};
   let ratingMap: Record<string, TickerRating> = {};
   if (holdings && holdings.length > 0) {
     const tickers = holdings.map((h: BucketHolding) => h.ticker);
-    const [quoteRes, ratings] = await Promise.all([
-      fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL ? '' : 'http://localhost:3000'}/api/securities/quote?tickers=${tickers.join(',')}`,
-        { next: { revalidate: 300 } }
-      ).then(r => r.ok ? r.json() : []).catch(() => []),
+    const [quotesResult, ratingsResult] = await Promise.all([
+      fetchQuotes(tickers),
       fetchRatings(tickers),
     ]);
-    quotes = quoteRes;
-    ratingMap = ratings;
+    quoteMap2 = quotesResult;
+    ratingMap = ratingsResult;
   }
 
-  const quoteMap = quotes.reduce((acc, q) => ({ ...acc, [q.ticker]: q }), {} as Record<string, SecurityQuote>);
-
-  const holdingsWithQuotes = (holdings || []).map((h: BucketHolding) => ({
-    ...h,
-    quote: quoteMap[h.ticker],
-  }));
+  const holdingsWithQuotes = (holdings || []).map((h: BucketHolding) => {
+    const q = quoteMap2[h.ticker];
+    return {
+      ...h,
+      quote: q ? { ticker: h.ticker, name: q.name, price: q.price, change_pct: 0, year_return: q.year_return, asset_type: h.asset_type } as SecurityQuote : undefined,
+    };
+  });
 
   // Compute actual weighted return
   const actualReturn = holdingsWithQuotes.reduce((sum, h) => {
@@ -97,13 +96,11 @@ export default async function BucketDetailPage({ params }: Props) {
 
   // Check for rebalance drift
   const driftWarning = holdingsWithQuotes.some((h) => {
-    const targetW = h.weight;
-    // Approximate current weight from value
     const holdingValue = h.quantity > 0 && h.quote?.price
       ? h.quantity * h.quote.price
       : h.weight * bucket.initial_amount;
-    const currentW = currentValue > 0 ? holdingValue / currentValue : targetW;
-    return Math.abs(currentW - targetW) > 0.05;
+    const currentW = currentValue > 0 ? holdingValue / currentValue : h.weight;
+    return Math.abs(currentW - h.weight) > 0.05;
   });
 
   return (
