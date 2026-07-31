@@ -336,6 +336,9 @@ export default async function BucketDetailPage({ params }: Props) {
         bucketId={bucketIdNum}
         portfolioId={portfolioId}
         holdings={holdingsWithQuotes as (BucketHolding & { quote?: SecurityQuote })[]}
+        bucketTargetReturn={bucket.target_return}
+        bucketLifespanYears={bucket.lifespan_years}
+        bucketInitialAmount={bucket.initial_amount}
       />
     </div>
   );
