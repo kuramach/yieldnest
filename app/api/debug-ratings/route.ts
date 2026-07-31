@@ -5,21 +5,24 @@ import { fetchYahooQuoteSummary } from '@/lib/yahoo-crumb';
 export async function GET(req: NextRequest) {
   const ticker = req.nextUrl.searchParams.get('ticker') ?? 'VOO';
   try {
-    const result = await fetchYahooQuoteSummary(ticker, 'financialData,ratingDetail,defaultKeyStatistics');
+    const result = await fetchYahooQuoteSummary(ticker, 'financialData,summaryDetail,assetProfile,defaultKeyStatistics');
     const fd = result?.financialData;
-    const rd = result?.ratingDetail?.result;
+    const sd = result?.summaryDetail;
+    const ap = result?.assetProfile;
     const ks = result?.defaultKeyStatistics;
     return NextResponse.json({
       ok: !!result,
       ticker,
       analyst_rating: fd?.recommendationKey ?? null,
       analyst_count: fd?.numberOfAnalystOpinions?.raw ?? null,
-      morningstar_overall: rd?.morningStarOverallRating ?? null,
-      morningstar_risk: rd?.morningStarRiskRating ?? null,
-      ratingDetail_raw: rd ?? null,
-      morningStarReturnRating: ks?.morningStarReturnRating ?? null,
-      morningStarRiskRating: ks?.morningStarRiskRating ?? null,
+      expense_ratio: sd?.annualHoldingsTurnover?.raw ?? sd?.expenseRatio ?? ap?.netExpenseRatio?.raw ?? null,
+      fund_category: ap?.category ?? null,
+      fund_family: ap?.fundFamily ?? null,
+      beta: ks?.beta?.raw ?? sd?.beta?.raw ?? null,
+      dividend_yield: sd?.dividendYield?.raw ?? null,
       modules_returned: result ? Object.keys(result) : [],
+      summaryDetail_raw: sd ? Object.keys(sd) : [],
+      assetProfile_raw: ap ? Object.keys(ap) : [],
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e.message });
