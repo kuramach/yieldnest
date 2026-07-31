@@ -21,8 +21,9 @@ export async function GET(req: NextRequest) {
       beta: ks?.beta?.raw ?? sd?.beta?.raw ?? null,
       dividend_yield: sd?.dividendYield?.raw ?? null,
       modules_returned: result ? Object.keys(result) : [],
-      summaryDetail_raw: sd ? Object.keys(sd) : [],
-      assetProfile_raw: ap ? Object.keys(ap) : [],
+      summaryDetail_values: sd ?? null,
+      assetProfile_values: ap ?? null,
+      defaultKeyStatistics_values: ks ?? null,
     });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: e.message });
