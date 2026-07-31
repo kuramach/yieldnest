@@ -1,53 +1,66 @@
-// Cached Yahoo Finance crumb for authenticated v10 quoteSummary requests.
-// Crumbs are valid for ~1 hour; we refresh every 30 minutes to be safe.
+import { unstable_cache } from 'next/cache';
 
-let cached: { crumb: string; cookie: string; at: number } | null = null;
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36';
 
-export async function getYahooCrumb(): Promise<{ crumb: string; cookie: string } | null> {
-  if (cached && Date.now() - cached.at < 1_800_000) return cached;
+// Cached for 30 min across all serverless invocations via Next.js cache
+const getCrumb = unstable_cache(
+  async (): Promise<{ crumb: string; cookie: string } | null> => {
+    try {
+      const cookieRes = await fetch('https://fc.yahoo.com', {
+        headers: { 'User-Agent': UA },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(5000),
+      });
+
+      // Collect all set-cookie values
+      let cookieHeader = '';
+      try {
+        const setCookies = (cookieRes.headers as any).getSetCookie?.() as string[] | undefined;
+        if (setCookies?.length) {
+          cookieHeader = setCookies.map((c: string) => c.split(';')[0].trim()).join('; ');
+        } else {
+          const raw = cookieRes.headers.get('set-cookie') ?? '';
+          cookieHeader = raw.split(';')[0].trim();
+        }
+      } catch {
+        cookieHeader = cookieRes.headers.get('set-cookie')?.split(';')[0]?.trim() ?? '';
+      }
+
+      if (!cookieHeader) return null;
+
+      const crumbRes = await fetch('https://query1.finance.yahoo.com/v1/test/getcrumb', {
+        headers: { 'User-Agent': UA, Cookie: cookieHeader },
+        signal: AbortSignal.timeout(5000),
+      });
+      const crumb = await crumbRes.text();
+      if (!crumb || crumb.startsWith('{') || crumb.length > 50) return null;
+
+      return { crumb: crumb.trim(), cookie: cookieHeader };
+    } catch {
+      return null;
+    }
+  },
+  ['yahoo-finance-crumb'],
+  { revalidate: 1800 },
+);
+
+export async function fetchYahooQuoteSummary(ticker: string, modules: string): Promise<any> {
+  const auth = await getCrumb();
+  const crumbParam = auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : '';
+  const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=${modules}${crumbParam}`;
+
   try {
-    const cookieRes = await fetch('https://fc.yahoo.com', {
-      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-      redirect: 'follow',
-    });
-
-    // Collect all Set-Cookie headers
-    const setCookies: string[] = cookieRes.headers.getSetCookie?.()
-      ?? [cookieRes.headers.get('set-cookie') ?? ''].filter(Boolean);
-
-    const cookieHeader = setCookies
-      .map(c => c.split(';')[0].trim())
-      .filter(Boolean)
-      .join('; ');
-
-    const crumbRes = await fetch('https://query1.finance.yahoo.com/v1/test/getcrumb', {
+    const res = await fetch(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        Cookie: cookieHeader,
+        'User-Agent': UA,
+        ...(auth ? { Cookie: auth.cookie } : {}),
       },
+      next: { revalidate: 3600 },
+      signal: AbortSignal.timeout(8000),
     });
-    const crumb = await crumbRes.text();
-    // Crumb is a plain string ~10 chars; if it looks like JSON it's an error
-    if (!crumb || crumb.startsWith('{') || crumb.length > 30) return null;
-
-    cached = { crumb, cookie: cookieHeader, at: Date.now() };
-    return cached;
+    const json = await res.json() as any;
+    return json?.quoteSummary?.result?.[0] ?? null;
   } catch {
     return null;
   }
-}
-
-export async function fetchYahooQuoteSummary(ticker: string, modules: string): Promise<any> {
-  const auth = await getYahooCrumb();
-  const crumbParam = auth ? `&crumb=${encodeURIComponent(auth.crumb)}` : '';
-  const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=${modules}${crumbParam}`;
-  const res = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      ...(auth ? { Cookie: auth.cookie } : {}),
-    },
-    next: { revalidate: 3600 },
-  });
-  const json = await res.json() as any;
-  return json?.quoteSummary?.result?.[0] ?? null;
 }
