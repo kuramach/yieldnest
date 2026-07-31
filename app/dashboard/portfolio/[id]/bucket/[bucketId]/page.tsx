@@ -140,29 +140,10 @@ export default async function BucketDetailPage({ params }: Props) {
         {portfolio.name}
       </Link>
 
-      {/* Header */}
-      <div className="flex items-start justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">{bucket.name}</h1>
-          <div className="flex items-center gap-2 mt-2 flex-wrap">
-            <span className="text-xs font-medium px-2.5 py-1 bg-slate-100 text-slate-600 rounded-full">
-              {(bucket.target_return * 100).toFixed(0)}% target return
-            </span>
-            <span className="text-xs font-medium px-2.5 py-1 bg-slate-100 text-slate-600 rounded-full">
-              {bucket.lifespan_years}yr lifespan
-            </span>
-            {bucket.initial_amount > 0 && (
-              <span className="text-xs font-medium px-2.5 py-1 bg-emerald-100 text-emerald-700 rounded-full">
-                ${bucket.initial_amount.toLocaleString()} invested
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-
       <BucketDetailClient
         bucketId={bucketIdNum}
         portfolioId={portfolioId}
+        bucketName={bucket.name}
         holdings={holdingsWithQuotes as (BucketHolding & { quote?: SecurityQuote })[]}
         initialRatingMap={ratingMap}
         actualReturn={actualReturn}

@@ -19,6 +19,7 @@ const ANALYST_LABELS: Record<string, { label: string; color: string }> = {
 interface Props {
   bucketId: number;
   portfolioId: number;
+  bucketName: string;
   holdings: (BucketHolding & { quote?: SecurityQuote })[];
   initialRatingMap: Record<string, TickerRating>;
   actualReturn: number;
@@ -32,6 +33,7 @@ interface Props {
 export default function BucketDetailClient({
   bucketId,
   portfolioId,
+  bucketName,
   holdings,
   initialRatingMap,
   actualReturn,
@@ -57,6 +59,30 @@ export default function BucketDetailClient({
   const [weightRationale, setWeightRationale] = useState('');
   const [weightError, setWeightError] = useState('');
   const [weightSaved, setWeightSaved] = useState(false);
+
+  // Bucket name editing
+  const [name, setName] = useState(bucketName);
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState(bucketName);
+  const [savingName, setSavingName] = useState(false);
+
+  async function saveName() {
+    const val = nameInput.trim();
+    if (!val) return;
+    setSavingName(true);
+    try {
+      await fetch(`/api/buckets/${bucketId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: val }),
+      });
+      setName(val);
+      setEditingName(false);
+      router.refresh();
+    } finally {
+      setSavingName(false);
+    }
+  }
 
   // Target return editing
   const [targetReturn, setTargetReturn] = useState(bucketTargetReturn);
@@ -307,6 +333,35 @@ export default function BucketDetailClient({
 
   return (
     <div className="space-y-5">
+
+      {/* ── Bucket Name (inline editable) ── */}
+      <div className="flex items-center gap-3 group">
+        {editingName ? (
+          <div className="flex items-center gap-2 flex-1">
+            <input
+              type="text"
+              value={nameInput}
+              onChange={e => setNameInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') saveName(); if (e.key === 'Escape') setEditingName(false); }}
+              autoFocus
+              className="text-2xl font-bold text-slate-900 border-b-2 border-emerald-400 bg-transparent focus:outline-none w-full max-w-sm"
+            />
+            <button onClick={saveName} disabled={savingName} className="p-1 text-emerald-600 hover:text-emerald-700 disabled:opacity-50">
+              {savingName ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            </button>
+            <button onClick={() => setEditingName(false)} className="text-sm text-slate-400 hover:text-slate-600">✕</button>
+          </div>
+        ) : (
+          <button
+            onClick={() => { setNameInput(name); setEditingName(true); }}
+            className="text-2xl font-bold text-slate-900 hover:text-emerald-700 transition-colors text-left"
+            title="Click to rename"
+          >
+            {name}
+            <span className="ml-2 text-xs font-normal text-slate-300 group-hover:text-slate-400 align-middle">✎</span>
+          </button>
+        )}
+      </div>
 
       {/* ── Section 1: Performance Strip ── */}
       <div className="bg-white border border-slate-200 rounded-2xl px-5 py-4">
