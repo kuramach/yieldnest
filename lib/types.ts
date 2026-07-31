@@ -30,6 +30,13 @@ export interface TickerRating {
   analyst_rating?: string;
   analyst_count?: number;
   analyst_mean?: number;            // 1=Strong Buy … 5=Strong Sell
+  fund_category?: string;           // e.g. "Large Blend", "Dividend"
+  fund_family?: string;             // e.g. "Vanguard", "Schwab"
+  yield_rate?: number;              // distribution yield, e.g. 0.0107
+  three_year_return?: number;       // annualized 3yr return
+  five_year_return?: number;        // annualized 5yr return
+  ten_year_return?: number;         // annualized 10yr return (computed from price history)
+  twenty_year_return?: number;      // annualized 20yr return (computed from price history)
 }
 
 export interface HoldingHistoricalStats {

@@ -8,18 +8,45 @@ import type { BucketHolding, SecurityQuote, TickerRating } from '@/lib/types';
 import { fetchYahooQuoteSummary } from '@/lib/yahoo-crumb';
 import { fetchQuotes } from '@/lib/yahoo-quotes';
 
+async function fetchLongTermReturn(ticker: string, range: '10y' | '20y'): Promise<number | undefined> {
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1mo&range=${range}`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+      next: { revalidate: 86400 },
+      signal: AbortSignal.timeout(8000),
+    });
+    const json = await res.json() as any;
+    const closes: number[] = (json?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? []).filter(Boolean);
+    if (closes.length < 12) return undefined;
+    const years = closes.length / 12;
+    return Math.pow(closes[closes.length - 1] / closes[0], 1 / years) - 1;
+  } catch { return undefined; }
+}
+
 async function fetchRatings(tickers: string[]): Promise<Record<string, TickerRating>> {
   const results = await Promise.allSettled(tickers.map(async (ticker) => {
-    const r = await fetchYahooQuoteSummary(ticker, 'financialData,ratingDetail');
+    const [r, ret10, ret20] = await Promise.all([
+      fetchYahooQuoteSummary(ticker, 'financialData,summaryDetail,defaultKeyStatistics'),
+      fetchLongTermReturn(ticker, '10y'),
+      fetchLongTermReturn(ticker, '20y'),
+    ]);
     if (!r) return { ticker } as TickerRating;
     const fd = r.financialData;
-    const rd = r.ratingDetail?.result;
+    const sd = r.summaryDetail;
+    const ks = r.defaultKeyStatistics;
     return {
       ticker,
-      morningstar_stars: rd?.morningStarOverallRating ?? undefined,
       analyst_rating: fd?.recommendationKey ?? undefined,
       analyst_count: fd?.numberOfAnalystOpinions?.raw ?? undefined,
       analyst_mean: fd?.recommendationMean?.raw ?? undefined,
+      fund_category: ks?.category ?? undefined,
+      fund_family: ks?.fundFamily ?? undefined,
+      yield_rate: (ks?.yield?.raw ?? sd?.yield?.raw) ?? undefined,
+      three_year_return: ks?.threeYearAverageReturn?.raw ?? undefined,
+      five_year_return: ks?.fiveYearAverageReturn?.raw ?? undefined,
+      ten_year_return: ret10,
+      twenty_year_return: ret20,
     } as TickerRating;
   }));
   const map: Record<string, TickerRating> = {};
@@ -227,23 +254,39 @@ export default async function BucketDetailPage({ params }: Props) {
                       </td>
                       <td className="px-4 py-3">
                         <div className="flex flex-col gap-1">
-                          {rating?.morningstar_stars && (
-                            <div className="flex items-center gap-1" title={`Morningstar ${rating.morningstar_stars}/5`}>
-                              {[1,2,3,4,5].map(i => (
-                                <svg key={i} className={`w-3 h-3 ${i <= (rating.morningstar_stars ?? 0) ? 'text-amber-400' : 'text-slate-200'}`} fill="currentColor" viewBox="0 0 20 20">
-                                  <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
-                                </svg>
-                              ))}
-                              <span className="text-xs text-slate-400 ml-0.5">MS</span>
-                            </div>
-                          )}
                           {rating?.analyst_rating && (
                             <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full w-fit ${ANALYST_COLORS[rating.analyst_rating] ?? 'bg-slate-100 text-slate-600'}`}>
                               {ANALYST_LABELS[rating.analyst_rating] ?? rating.analyst_rating}
                               {rating.analyst_count ? <span className="font-normal ml-1 opacity-70">({rating.analyst_count})</span> : null}
                             </span>
                           )}
-                          {!rating?.morningstar_stars && !rating?.analyst_rating && (
+                          {rating?.fund_category && (
+                            <span className="inline-block text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 w-fit">
+                              {rating.fund_category}
+                            </span>
+                          )}
+                          {rating?.yield_rate != null && (
+                            <span className="text-xs text-slate-500">
+                              Yield: <span className="font-semibold text-emerald-700">{(rating.yield_rate * 100).toFixed(2)}%</span>
+                            </span>
+                          )}
+                          {(rating?.three_year_return != null || rating?.five_year_return != null || rating?.ten_year_return != null || rating?.twenty_year_return != null) && (
+                            <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                              {rating?.three_year_return != null && (
+                                <span className="text-xs text-slate-400">3yr: <span className={`font-semibold ${rating.three_year_return >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{(rating.three_year_return * 100).toFixed(1)}%</span></span>
+                              )}
+                              {rating?.five_year_return != null && (
+                                <span className="text-xs text-slate-400">5yr: <span className={`font-semibold ${rating.five_year_return >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{(rating.five_year_return * 100).toFixed(1)}%</span></span>
+                              )}
+                              {rating?.ten_year_return != null && (
+                                <span className="text-xs text-slate-400">10yr: <span className={`font-semibold ${rating.ten_year_return >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{(rating.ten_year_return * 100).toFixed(1)}%</span></span>
+                              )}
+                              {rating?.twenty_year_return != null && (
+                                <span className="text-xs text-slate-400">20yr: <span className={`font-semibold ${rating.twenty_year_return >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{(rating.twenty_year_return * 100).toFixed(1)}%</span></span>
+                              )}
+                            </div>
+                          )}
+                          {!rating?.analyst_rating && !rating?.fund_category && (
                             <span className="text-xs text-slate-300">—</span>
                           )}
                         </div>

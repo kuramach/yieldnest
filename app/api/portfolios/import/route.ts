@@ -166,14 +166,14 @@ Example format: {"AAPL": "Growth-oriented tech giant focused on premium consumer
   await Promise.allSettled(
     uniqueTickers.map(async (ticker) => {
       try {
-        const r = await fetchYahooQuoteSummary(ticker, 'financialData,ratingDetail');
+        const r = await fetchYahooQuoteSummary(ticker, 'financialData,defaultKeyStatistics');
         if (!r) return;
         const fd = r.financialData;
-        const rd = r.ratingDetail?.result;
+        const ks = r.defaultKeyStatistics;
         ratingMap[ticker] = {
-          morningstar_stars: rd?.morningStarOverallRating ?? undefined,
           analyst_rating: fd?.recommendationKey ?? undefined,
           analyst_count: fd?.numberOfAnalystOpinions?.raw ?? undefined,
+          morningstar_stars: undefined,
         };
       } catch { /* ratings are optional */ }
     })
