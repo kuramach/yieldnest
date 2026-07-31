@@ -5,30 +5,25 @@ import { createClient } from '@/lib/supabase/server';
 import ReturnBar from '@/components/ReturnBar';
 import BucketDetailClient from './BucketDetailClient';
 import type { BucketHolding, SecurityQuote, TickerRating } from '@/lib/types';
+import { fetchYahooQuoteSummary } from '@/lib/yahoo-crumb';
 
 async function fetchRatings(tickers: string[]): Promise<Record<string, TickerRating>> {
-  try {
-    const results = await Promise.allSettled(tickers.map(async (ticker) => {
-      const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=financialData,ratingDetail`;
-      const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, next: { revalidate: 3600 } });
-      const json = await res.json() as any;
-      const r = json?.quoteSummary?.result?.[0];
-      if (!r) return { ticker } as TickerRating;
-      const fd = r.financialData;
-      const rd = r.ratingDetail?.result;
-      return {
-        ticker,
-        morningstar_stars: rd?.morningStarOverallRating ?? undefined,
-        morningstar_risk: rd?.morningStarRiskRating ?? undefined,
-        analyst_rating: fd?.recommendationKey ?? undefined,
-        analyst_count: fd?.numberOfAnalystOpinions?.raw ?? undefined,
-        analyst_mean: fd?.recommendationMean?.raw ?? undefined,
-      } as TickerRating;
-    }));
-    const map: Record<string, TickerRating> = {};
-    results.forEach((r, i) => { if (r.status === 'fulfilled') map[tickers[i]] = r.value; });
-    return map;
-  } catch { return {}; }
+  const results = await Promise.allSettled(tickers.map(async (ticker) => {
+    const r = await fetchYahooQuoteSummary(ticker, 'financialData,ratingDetail');
+    if (!r) return { ticker } as TickerRating;
+    const fd = r.financialData;
+    const rd = r.ratingDetail?.result;
+    return {
+      ticker,
+      morningstar_stars: rd?.morningStarOverallRating ?? undefined,
+      analyst_rating: fd?.recommendationKey ?? undefined,
+      analyst_count: fd?.numberOfAnalystOpinions?.raw ?? undefined,
+      analyst_mean: fd?.recommendationMean?.raw ?? undefined,
+    } as TickerRating;
+  }));
+  const map: Record<string, TickerRating> = {};
+  results.forEach((r, i) => { if (r.status === 'fulfilled') map[tickers[i]] = r.value; });
+  return map;
 }
 
 type Props = { params: Promise<{ id: string; bucketId: string }> };

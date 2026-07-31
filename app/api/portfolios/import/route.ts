@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { fetchYahooQuoteSummary } from '@/lib/yahoo-crumb';
 import type { ImportedHolding } from '@/lib/types';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -160,15 +161,12 @@ Example format: {"AAPL": "Growth-oriented tech giant focused on premium consumer
     // descriptions are optional, don't fail the whole request
   }
 
-  // Fetch Morningstar star ratings + analyst consensus from Yahoo Finance quoteSummary
+  // Fetch Morningstar star ratings + analyst consensus (uses crumb-authenticated v10 quoteSummary)
   const ratingMap: Record<string, { morningstar_stars?: number; analyst_rating?: string; analyst_count?: number }> = {};
   await Promise.allSettled(
     uniqueTickers.map(async (ticker) => {
       try {
-        const url = `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(ticker)}?modules=financialData,ratingDetail`;
-        const res = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-        const json = await res.json() as any;
-        const r = json?.quoteSummary?.result?.[0];
+        const r = await fetchYahooQuoteSummary(ticker, 'financialData,ratingDetail');
         if (!r) return;
         const fd = r.financialData;
         const rd = r.ratingDetail?.result;
