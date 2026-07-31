@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import {
   Upload, ChevronRight, ChevronLeft, Check, Globe, Lock,
   TrendingUp, TrendingDown, AlertCircle, Loader2, DollarSign,
-  BarChart3, Minus, RotateCcw, SlidersHorizontal,
+  BarChart3, Minus, RotateCcw, SlidersHorizontal, Brain, Equal,
 } from 'lucide-react';
 import type { ImportedHolding, HoldingHistoricalStats, PortfolioAnalysis, OptimizationResult } from '@/lib/types';
 
@@ -103,6 +103,11 @@ export default function ImportPage() {
 
   const [targetReturn, setTargetReturn] = useState(0.07);
   const [availableCash, setAvailableCash] = useState('');
+  const [lifespanYears, setLifespanYears] = useState(10);
+  // Step-2 weight editing (ticker → pct string)
+  const [previewWeights, setPreviewWeights] = useState<Record<string, string>>({});
+  const [suggestingWeights, setSuggestingWeights] = useState(false);
+  const [weightRationale, setWeightRationale] = useState('');
 
   // Save form
   const [portfolioName, setPortfolioName] = useState('');
@@ -121,11 +126,47 @@ export default function ImportPage() {
       if (!res.ok) throw new Error(json.error || 'Upload failed');
       setHoldings(json.holdings);
       setPortfolioName(file.name.replace(/\.[^.]+$/, ''));
+      // Initialize equal weights for preview step
+      const eq: Record<string, string> = {};
+      for (const h of json.holdings) eq[h.ticker] = (100 / json.holdings.length).toFixed(1);
+      setPreviewWeights(eq);
       setStep('preview');
     } catch (e: any) {
       setError(e.message);
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function handleSuggestWeights() {
+    setError('');
+    setSuggestingWeights(true);
+    setWeightRationale('');
+    const cash = parseFloat(availableCash.replace(/,/g, '')) || 0;
+    try {
+      const res = await fetch('/api/portfolios/suggest-weights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          holdings,
+          target_return: targetReturn,
+          available_cash: cash,
+          lifespan_years: lifespanYears,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Suggestion failed');
+      const next: Record<string, string> = {};
+      for (const h of holdings) {
+        const w = json.weights[h.ticker] ?? 0;
+        next[h.ticker] = (w * 100).toFixed(1);
+      }
+      setPreviewWeights(next);
+      setWeightRationale(json.rationale ?? '');
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setSuggestingWeights(false);
     }
   }
 
@@ -203,19 +244,28 @@ export default function ImportPage() {
           portfolio_id: portfolio.id,
           name: 'Imported Holdings',
           target_return: targetReturn,
-          lifespan_years: 10,
+          lifespan_years: lifespanYears,
           initial_amount: cash || holdings.reduce((s, h) => s + (h.value ?? 0), 0),
         }),
       });
       const bucket = await bRes.json();
       if (!bRes.ok) throw new Error(bucket.error);
 
-      const source = liveRows.length > 0 ? liveRows : holdings.map(h => ({
-        ticker: h.ticker, name: h.name || h.ticker,
-        weight: 1 / holdings.length, cagr: 0, year_return: 0,
-        asset_type: h.asset_type ?? 'stock' as const,
-        price: h.price ?? 0, dollar_amount: 0, shares_to_buy: 0,
-      }));
+      const previewTotal = Object.values(previewWeights).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+      const source = liveRows.length > 0 ? liveRows : holdings.map(h => {
+        const pct = parseFloat(previewWeights[h.ticker] ?? '0') || 0;
+        const w = previewTotal > 0 ? pct / previewTotal : 1 / holdings.length;
+        const cash2 = parseFloat(availableCash.replace(/,/g, '')) || 0;
+        const dollar = cash2 > 0 ? cash2 * w : 0;
+        return {
+          ticker: h.ticker, name: h.name || h.ticker,
+          weight: w, cagr: h.year_return ?? 0, year_return: h.year_return ?? 0,
+          asset_type: h.asset_type ?? 'stock' as const,
+          price: h.price ?? 0,
+          dollar_amount: dollar,
+          shares_to_buy: h.price && h.price > 0 && dollar > 0 ? Math.floor(dollar / h.price) : 0,
+        };
+      });
 
       await Promise.all(source.map(h =>
         fetch('/api/holdings', {
@@ -336,6 +386,59 @@ export default function ImportPage() {
       {/* ── STEP 2: Preview holdings ── */}
       {step === 'preview' && (
         <div>
+          {/* Weight controls header */}
+          {(() => {
+            const totalPct = Object.values(previewWeights).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+            return (
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-sm font-semibold text-slate-700">Allocation Weights</span>
+                <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${Math.abs(totalPct - 100) < 0.5 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                  {totalPct.toFixed(1)}%
+                </span>
+                <div className="flex gap-2 ml-auto">
+                  <button
+                    onClick={() => {
+                      const eq: Record<string, string> = {};
+                      for (const h of holdings) eq[h.ticker] = (100 / holdings.length).toFixed(1);
+                      setPreviewWeights(eq);
+                      setWeightRationale('');
+                    }}
+                    className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 border border-slate-200 hover:border-slate-400 rounded-lg transition-colors text-slate-600"
+                  >
+                    <Equal className="w-3 h-3" /> Equal Weight
+                  </button>
+                  <button
+                    onClick={() => {
+                      const total = Object.values(previewWeights).reduce((s, v) => s + (parseFloat(v) || 0), 0);
+                      if (total === 0) return;
+                      const n: Record<string, string> = {};
+                      for (const [t, v] of Object.entries(previewWeights)) n[t] = ((parseFloat(v) || 0) / total * 100).toFixed(1);
+                      setPreviewWeights(n);
+                    }}
+                    className="text-xs font-semibold px-3 py-1.5 border border-slate-200 hover:border-slate-400 rounded-lg transition-colors text-slate-600"
+                  >
+                    Normalize
+                  </button>
+                  <button
+                    onClick={handleSuggestWeights}
+                    disabled={suggestingWeights}
+                    className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {suggestingWeights ? <Loader2 className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
+                    {suggestingWeights ? 'Thinking…' : 'AI Suggest Weights'}
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
+
+          {weightRationale && (
+            <div className="flex gap-2 items-start mb-3 px-4 py-3 bg-violet-50 border border-violet-200 rounded-xl text-xs text-violet-800">
+              <Brain className="w-3.5 h-3.5 mt-0.5 shrink-0 text-violet-600" />
+              {weightRationale}
+            </div>
+          )}
+
           <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden mb-6">
             <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
               <h2 className="font-semibold text-slate-800">{holdings.length} holdings found</h2>
@@ -348,7 +451,7 @@ export default function ImportPage() {
                     <th className="text-left px-5 py-2.5 font-medium text-slate-500">Ticker</th>
                     <th className="text-left px-4 py-2.5 font-medium text-slate-500">Name &amp; Philosophy</th>
                     <th className="text-left px-4 py-2.5 font-medium text-slate-500">Ratings</th>
-                    <th className="text-right px-4 py-2.5 font-medium text-slate-500">Shares</th>
+                    <th className="text-center px-4 py-2.5 font-medium text-slate-500">Weight %</th>
                     <th className="text-right px-4 py-2.5 font-medium text-slate-500">Price</th>
                     <th className="text-right px-4 py-2.5 font-medium text-slate-500">Value</th>
                     <th className="text-right px-5 py-2.5 font-medium text-slate-500">1Y Return</th>
@@ -368,24 +471,29 @@ export default function ImportPage() {
                       </td>
                       <td className="px-4 py-3 align-top">
                         <div className="flex flex-col gap-1">
-                          {h.morningstar_stars && (
-                            <div className="flex items-center gap-1">
-                              <StarRating stars={h.morningstar_stars} />
-                              <span className="text-xs text-slate-400">MS</span>
-                            </div>
-                          )}
                           {ar && (
                             <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full w-fit ${ar.color}`}>
                               {ar.label}
                               {h.analyst_count ? <span className="font-normal ml-1 opacity-70">({h.analyst_count})</span> : null}
                             </span>
                           )}
-                          {!h.morningstar_stars && !ar && (
+                          {!ar && (
                             <span className="text-xs text-slate-300">—</span>
                           )}
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-right text-slate-700 align-top">{h.shares > 0 ? h.shares.toLocaleString() : '—'}</td>
+                      <td className="px-4 py-3 text-center align-top">
+                        <div className="flex items-center justify-center gap-1">
+                          <input
+                            type="number"
+                            min={0} max={100} step={0.5}
+                            value={previewWeights[h.ticker] ?? ''}
+                            onChange={e => setPreviewWeights(prev => ({ ...prev, [h.ticker]: e.target.value }))}
+                            className="w-16 text-center border border-slate-200 rounded-lg px-2 py-1 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
+                          />
+                          <span className="text-slate-400 text-xs">%</span>
+                        </div>
+                      </td>
                       <td className="px-4 py-3 text-right text-slate-700 align-top">{h.price ? fmtUsd(h.price) : '—'}</td>
                       <td className="px-4 py-3 text-right text-slate-700 align-top">{fmtUsd(h.value)}</td>
                       <td className={`px-5 py-3 text-right font-semibold align-top ${h.year_return == null ? 'text-slate-300' : h.year_return >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
@@ -412,18 +520,31 @@ export default function ImportPage() {
                 <span>2% Conservative</span><span>10% Balanced</span><span>20% Aggressive</span>
               </div>
             </div>
-            <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                Available Cash to Invest <span className="font-normal text-slate-400">(optional)</span>
-              </label>
-              <div className="relative">
-                <DollarSign className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <input type="text" value={availableCash}
-                  onChange={e => setAvailableCash(e.target.value)}
-                  placeholder="e.g. 50,000"
-                  className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+                  Available Cash to Invest <span className="font-normal text-slate-400">(optional)</span>
+                </label>
+                <div className="relative">
+                  <DollarSign className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <input type="text" value={availableCash}
+                    onChange={e => setAvailableCash(e.target.value)}
+                    placeholder="e.g. 50,000"
+                    className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
+                </div>
+                <p className="text-xs text-slate-400 mt-1">Used to calculate shares to buy per holding</p>
               </div>
-              <p className="text-xs text-slate-400 mt-1">Used to calculate how many shares to buy per holding</p>
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+                  Portfolio Lifespan: <span className="text-emerald-600">{lifespanYears} years</span>
+                </label>
+                <input type="range" min={1} max={40} step={1} value={lifespanYears}
+                  onChange={e => setLifespanYears(parseInt(e.target.value))}
+                  className="w-full accent-emerald-500" />
+                <div className="flex justify-between text-xs text-slate-400 mt-1">
+                  <span>1yr Short</span><span>10yr Medium</span><span>40yr Long</span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -679,8 +800,8 @@ export default function ImportPage() {
           </div>
 
           <div className="bg-slate-50 rounded-2xl p-4 mb-6 text-sm text-slate-600 space-y-1">
-            <p><strong>{liveRows.length}</strong> holdings · <strong>{(targetReturn * 100).toFixed(0)}%</strong> target · <strong>{pct(liveBlended)}</strong> blended CAGR</p>
-            {cash > 0 && <p>Total deployment: <strong>{fmtUsd(liveTotalAllocated)}</strong> of <strong>{fmtUsd(cash)}</strong> available</p>}
+            <p><strong>{liveRows.length || holdings.length}</strong> holdings · <strong>{(targetReturn * 100).toFixed(0)}%</strong> target · <strong>{lifespanYears}yr</strong> lifespan{liveRows.length > 0 ? ` · ${pct(liveBlended)} blended CAGR` : ''}</p>
+            {cash > 0 && liveRows.length > 0 && <p>Total deployment: <strong>{fmtUsd(liveTotalAllocated)}</strong> of <strong>{fmtUsd(cash)}</strong> available</p>}
           </div>
 
           <div className="flex justify-between">
