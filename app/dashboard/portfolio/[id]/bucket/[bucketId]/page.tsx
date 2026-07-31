@@ -4,6 +4,7 @@ import { ArrowLeft, AlertTriangle } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import ReturnBar from '@/components/ReturnBar';
 import BucketDetailClient from './BucketDetailClient';
+import StressTestPanel from './StressTestPanel';
 import type { BucketHolding, SecurityQuote, TickerRating } from '@/lib/types';
 import { fetchYahooQuoteSummary } from '@/lib/yahoo-crumb';
 import { fetchQuotes } from '@/lib/yahoo-quotes';
@@ -190,6 +191,19 @@ export default async function BucketDetailPage({ params }: Props) {
           </div>
         </div>
       </div>
+
+      {/* Stress Test */}
+      {holdingsWithQuotes.length > 0 && bucket.initial_amount > 0 && (
+        <StressTestPanel
+          holdings={holdingsWithQuotes.map(h => ({
+            weight: h.weight,
+            year_return: h.quote?.year_return,
+            asset_type: h.asset_type,
+          }))}
+          lifespan_years={bucket.lifespan_years}
+          initial_amount={bucket.initial_amount}
+        />
+      )}
 
       {/* Rebalance warning */}
       {driftWarning && (
