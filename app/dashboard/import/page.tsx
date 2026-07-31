@@ -230,6 +230,23 @@ export default function ImportPage() {
         })
       ));
 
+      // Persist analysis snapshot if available
+      if (analysis) {
+        await fetch(`/api/portfolios/${portfolio.id}/analyses`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            stats: analysis.stats,
+            ai_narrative: analysis.ai_narrative,
+            target_return: targetReturn,
+            available_cash: cash,
+            portfolio_best: analysis.portfolio_best,
+            portfolio_worst: analysis.portfolio_worst,
+            portfolio_median: analysis.portfolio_median,
+          }),
+        }).catch(() => {}); // non-fatal
+      }
+
       router.push(`/dashboard/portfolio/${portfolio.id}`);
     } catch (e: any) {
       setError(e.message);

@@ -4,6 +4,7 @@ import { ArrowLeft, ExternalLink, TrendingUp } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import type { BucketWithHoldings } from '@/lib/types';
 import PortfolioClient from './PortfolioClient';
+import PortfolioAnalysisPanel from '@/components/PortfolioAnalysisPanel';
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -108,6 +109,8 @@ export default async function PortfolioPage({ params }: Props) {
         portfolioId={portfolioId}
         initialBuckets={bucketsWithHoldings}
       />
+
+      <PortfolioAnalysisPanel portfolioId={portfolioId} />
     </div>
   );
 }
