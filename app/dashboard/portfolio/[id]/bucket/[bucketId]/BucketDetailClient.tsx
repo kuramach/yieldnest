@@ -58,6 +58,30 @@ export default function BucketDetailClient({
   const [weightError, setWeightError] = useState('');
   const [weightSaved, setWeightSaved] = useState(false);
 
+  // Target return editing
+  const [targetReturn, setTargetReturn] = useState(bucketTargetReturn);
+  const [editingTarget, setEditingTarget] = useState(false);
+  const [targetInput, setTargetInput] = useState((bucketTargetReturn * 100).toFixed(0));
+  const [savingTarget, setSavingTarget] = useState(false);
+
+  async function saveTargetReturn() {
+    const val = parseFloat(targetInput);
+    if (isNaN(val) || val < 0 || val > 100) return;
+    setSavingTarget(true);
+    try {
+      await fetch(`/api/buckets/${bucketId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_return: val / 100 }),
+      });
+      setTargetReturn(val / 100);
+      setEditingTarget(false);
+      router.refresh();
+    } finally {
+      setSavingTarget(false);
+    }
+  }
+
   // Lifespan editing
   const [lifespan, setLifespan] = useState(bucketLifespanYears);
   const [editingLifespan, setEditingLifespan] = useState(false);
@@ -273,9 +297,9 @@ export default function BucketDetailClient({
   });
 
   // Return color logic
-  const returnDiff = liveWeightedReturn - bucketTargetReturn;
+  const returnDiff = liveWeightedReturn - targetReturn;
   const returnColor =
-    liveWeightedReturn >= bucketTargetReturn
+    liveWeightedReturn >= targetReturn
       ? 'text-emerald-600'
       : returnDiff > -0.02
       ? 'text-amber-500'
@@ -299,9 +323,35 @@ export default function BucketDetailClient({
                   ? `${liveWeightedReturn >= 0 ? '+' : ''}${(liveWeightedReturn * 100).toFixed(1)}%`
                   : '—'}
               </span>
-              <span className="text-xs text-slate-400">
-                vs {(bucketTargetReturn * 100).toFixed(0)}% target
-              </span>
+              <span className="text-xs text-slate-400">vs</span>
+              {editingTarget ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    step={1}
+                    value={targetInput}
+                    onChange={e => setTargetInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') saveTargetReturn(); if (e.key === 'Escape') setEditingTarget(false); }}
+                    autoFocus
+                    className="w-12 text-center border border-slate-300 rounded-lg px-1 py-0.5 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                  />
+                  <span className="text-xs text-slate-500">% target</span>
+                  <button onClick={saveTargetReturn} disabled={savingTarget} className="p-0.5 text-emerald-600 hover:text-emerald-700 disabled:opacity-50">
+                    {savingTarget ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                  </button>
+                  <button onClick={() => setEditingTarget(false)} className="text-xs text-slate-400 hover:text-slate-600">✕</button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => { setTargetInput((targetReturn * 100).toFixed(0)); setEditingTarget(true); }}
+                  className="text-xs text-slate-400 hover:text-emerald-600 transition-colors underline-offset-2 hover:underline"
+                  title="Click to edit target return"
+                >
+                  {(targetReturn * 100).toFixed(0)}% target
+                </button>
+              )}
             </div>
             <p className="text-xs text-slate-400 mt-0.5">Actual return (trailing 12mo)</p>
           </div>
