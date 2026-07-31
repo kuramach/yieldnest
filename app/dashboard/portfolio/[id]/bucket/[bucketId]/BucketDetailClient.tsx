@@ -58,6 +58,30 @@ export default function BucketDetailClient({
   const [weightError, setWeightError] = useState('');
   const [weightSaved, setWeightSaved] = useState(false);
 
+  // Lifespan editing
+  const [lifespan, setLifespan] = useState(bucketLifespanYears);
+  const [editingLifespan, setEditingLifespan] = useState(false);
+  const [lifespanInput, setLifespanInput] = useState(String(bucketLifespanYears));
+  const [savingLifespan, setSavingLifespan] = useState(false);
+
+  async function saveLifespan() {
+    const val = parseInt(lifespanInput, 10);
+    if (isNaN(val) || val < 1 || val > 50) return;
+    setSavingLifespan(true);
+    try {
+      await fetch(`/api/buckets/${bucketId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lifespan_years: val }),
+      });
+      setLifespan(val);
+      setEditingLifespan(false);
+      router.refresh();
+    } finally {
+      setSavingLifespan(false);
+    }
+  }
+
   // Re-sync weight inputs when holdings prop changes (after add/delete refresh)
   useEffect(() => {
     setEditWeights(Object.fromEntries(holdings.map(h => [h.id, (h.weight * 100).toFixed(1)])));
@@ -302,6 +326,46 @@ export default function BucketDetailClient({
             <p className="text-xs text-slate-400 mt-0.5">
               {holdings.length === 1 ? 'holding' : 'holdings'}
             </p>
+          </div>
+
+          <div className="w-px h-8 bg-slate-100 hidden sm:block" />
+
+          {/* Lifespan — click to edit */}
+          <div>
+            {editingLifespan ? (
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={lifespanInput}
+                  onChange={e => setLifespanInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') saveLifespan(); if (e.key === 'Escape') setEditingLifespan(false); }}
+                  autoFocus
+                  className="w-14 text-center border border-slate-300 rounded-lg px-1.5 py-1 text-sm font-bold focus:outline-none focus:ring-2 focus:ring-emerald-400"
+                />
+                <span className="text-xs text-slate-500">yr</span>
+                <button
+                  onClick={saveLifespan}
+                  disabled={savingLifespan}
+                  className="p-1 text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
+                >
+                  {savingLifespan ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                </button>
+                <button onClick={() => setEditingLifespan(false)} className="text-xs text-slate-400 hover:text-slate-600">✕</button>
+              </div>
+            ) : (
+              <button
+                onClick={() => { setLifespanInput(String(lifespan)); setEditingLifespan(true); }}
+                className="group text-left"
+                title="Click to edit lifespan"
+              >
+                <div className="text-xl font-bold text-slate-800 tabular-nums group-hover:text-emerald-600 transition-colors">
+                  {lifespan}yr
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5 group-hover:text-slate-500">lifespan <span className="text-slate-300">(edit)</span></p>
+              </button>
+            )}
           </div>
 
           {/* Drift warning badge */}
@@ -682,7 +746,7 @@ export default function BucketDetailClient({
             year_return: h.quote?.year_return,
             asset_type: h.asset_type,
           }))}
-          lifespan_years={bucketLifespanYears}
+          lifespan_years={lifespan}
           initial_amount={bucketInitialAmount}
         />
       )}
