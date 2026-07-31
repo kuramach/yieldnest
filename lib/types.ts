@@ -102,7 +102,94 @@ export interface BucketHolding {
   weight: number;
   quantity: number;
   purchase_price: number;
+  cost_basis?: number;
+  brokerage?: string;
+  last_synced_at?: string;
   added_at: string;
+}
+
+// ── Collaboration ───────────────────────────────────────────────────────────
+
+export interface BucketCollaborator {
+  id: number;
+  bucket_id: number;
+  invited_by: string;
+  user_id: string | null;
+  invited_email: string;
+  role: 'viewer' | 'editor';
+  status: 'pending' | 'active' | 'revoked';
+  invite_token: string;
+  created_at: string;
+  accepted_at: string | null;
+}
+
+export type ProposalPayloadWeightChange = {
+  holding_id: number;
+  ticker: string;
+  old_weight: number;
+  new_weight: number;
+};
+
+export type ProposalPayloadAddition = {
+  ticker: string;
+  name: string;
+  asset_type: 'stock' | 'etf' | 'bond';
+  weight: number;
+};
+
+export type ProposalPayloadRemoval = {
+  holding_id: number;
+  ticker: string;
+};
+
+export interface ProposalPayload {
+  weight_changes?: ProposalPayloadWeightChange[];
+  additions?: ProposalPayloadAddition[];
+  removals?: ProposalPayloadRemoval[];
+  meta?: {
+    lifespan_years?: { old: number; new: number };
+    target_return?: { old: number; new: number };
+  };
+}
+
+export interface BucketProposal {
+  id: number;
+  bucket_id: number;
+  proposed_by: string;
+  status: 'open' | 'accepted' | 'rejected' | 'withdrawn';
+  title: string;
+  summary?: string;
+  payload: ProposalPayload;
+  created_at: string;
+  resolved_at?: string;
+  resolved_by?: string;
+}
+
+export interface ProposalComment {
+  id: number;
+  proposal_id: number;
+  user_id: string;
+  body: string;
+  created_at: string;
+}
+
+// ── Brokerage sync ──────────────────────────────────────────────────────────
+
+export interface BrokerageSync {
+  id: number;
+  user_id: string;
+  bucket_id: number;
+  source: string;
+  synced_at: string;
+  holdings_updated: number;
+  unmatched_tickers: string[];
+}
+
+export interface CsvHoldingRow {
+  ticker: string;
+  quantity: number;
+  cost_basis: number;
+  current_value?: number;
 }
 
 export interface SecurityQuote {
