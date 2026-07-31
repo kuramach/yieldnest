@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Trash2, Brain, Equal, RotateCcw, Save, Loader2, SlidersHorizontal } from 'lucide-react';
+import { Trash2, Brain, Equal, Save, Loader2, SlidersHorizontal, Hammer, AlertTriangle, TrendingUp } from 'lucide-react';
 import SecuritySearch from '@/components/SecuritySearch';
 import BuilderModal from '@/components/BuilderModal';
+import StressTestPanel from './StressTestPanel';
 import type { BucketHolding, SecurityQuote, SuggestedPortfolio, TickerRating } from '@/lib/types';
 
 const ANALYST_LABELS: Record<string, { label: string; color: string }> = {
@@ -19,21 +20,35 @@ interface Props {
   bucketId: number;
   portfolioId: number;
   holdings: (BucketHolding & { quote?: SecurityQuote })[];
+  initialRatingMap: Record<string, TickerRating>;
+  actualReturn: number;
+  currentValue: number;
+  driftWarning: boolean;
   bucketTargetReturn: number;
   bucketLifespanYears: number;
   bucketInitialAmount: number;
 }
 
 export default function BucketDetailClient({
-  bucketId, portfolioId, holdings,
-  bucketTargetReturn, bucketLifespanYears, bucketInitialAmount,
+  bucketId,
+  portfolioId,
+  holdings,
+  initialRatingMap,
+  actualReturn,
+  currentValue,
+  driftWarning,
+  bucketTargetReturn,
+  bucketLifespanYears,
+  bucketInitialAmount,
 }: Props) {
   const router = useRouter();
   const [showBuilder, setShowBuilder] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null);
-  const [ratingMap, setRatingMap] = useState<Record<string, TickerRating>>({});
 
-  // Weight editing
+  // Seed rating map from server-fetched prop; only re-fetch after mutations
+  const [ratingMap, setRatingMap] = useState<Record<string, TickerRating>>(initialRatingMap);
+
+  // Weight editing — keyed by holding id
   const [editWeights, setEditWeights] = useState<Record<number, string>>(() =>
     Object.fromEntries(holdings.map(h => [h.id, (h.weight * 100).toFixed(1)]))
   );
@@ -43,11 +58,13 @@ export default function BucketDetailClient({
   const [weightError, setWeightError] = useState('');
   const [weightSaved, setWeightSaved] = useState(false);
 
-  // Re-init when holdings change (e.g. after add/delete)
+  // Re-sync weight inputs when holdings prop changes (after add/delete refresh)
   useEffect(() => {
     setEditWeights(Object.fromEntries(holdings.map(h => [h.id, (h.weight * 100).toFixed(1)])));
   }, [holdings]);
 
+  // Refresh ratings only after mutations (triggered by holdings length change)
+  const holdingsKey = holdings.map(h => h.ticker).join(',');
   useEffect(() => {
     const tickers = holdings.map(h => h.ticker);
     if (tickers.length === 0) return;
@@ -63,12 +80,37 @@ export default function BucketDetailClient({
         setRatingMap(map);
       })
       .catch(() => {});
-  }, [holdings]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [holdingsKey]);
 
   const totalWeightPct = useMemo(
     () => Object.values(editWeights).reduce((s, v) => s + (parseFloat(v) || 0), 0),
     [editWeights]
   );
+
+  // Live weighted return using current edit weights
+  const liveWeightedReturn = useMemo(() => {
+    const n = holdings.length;
+    if (n === 0) return 0;
+    return holdings.reduce((s, h) => {
+      const rawPct = parseFloat(editWeights[h.id] ?? '0') || 0;
+      const w = totalWeightPct > 0 ? rawPct / totalWeightPct : 1 / n;
+      return s + w * (h.quote?.year_return ?? 0);
+    }, 0);
+  }, [holdings, editWeights, totalWeightPct]);
+
+  // Live total value using current edit weights
+  const liveTotalValue = useMemo(() => {
+    if (bucketInitialAmount <= 0) return 0;
+    const n = holdings.length;
+    if (n === 0) return 0;
+    return holdings.reduce((s, h) => {
+      const rawPct = parseFloat(editWeights[h.id] ?? '0') || 0;
+      const w = totalWeightPct > 0 ? rawPct / totalWeightPct : 1 / n;
+      if (h.quantity > 0 && h.quote?.price) return s + h.quantity * h.quote.price;
+      return s + w * bucketInitialAmount;
+    }, 0);
+  }, [holdings, editWeights, totalWeightPct, bucketInitialAmount]);
 
   function setEqual() {
     const eq = (100 / holdings.length).toFixed(1);
@@ -206,59 +248,156 @@ export default function BucketDetailClient({
     return editWeights[h.id] !== saved;
   });
 
+  // Return color logic
+  const returnDiff = liveWeightedReturn - bucketTargetReturn;
+  const returnColor =
+    liveWeightedReturn >= bucketTargetReturn
+      ? 'text-emerald-600'
+      : returnDiff > -0.02
+      ? 'text-amber-500'
+      : 'text-red-500';
+
   return (
-    <div className="space-y-6">
-      {/* Actions */}
-      <div className="flex gap-3">
-        <button
-          onClick={() => setShowBuilder(true)}
-          className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-xl transition-colors"
-        >
-          Portfolio Builder
-        </button>
+    <div className="space-y-5">
+
+      {/* ── Section 1: Performance Strip ── */}
+      <div className="bg-white border border-slate-200 rounded-2xl px-5 py-4">
+        <div className="flex items-center gap-1.5 mb-3">
+          <TrendingUp className="w-3.5 h-3.5 text-slate-400" />
+          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Performance</span>
+        </div>
+        <div className="flex items-center gap-6 flex-wrap">
+          {/* Actual return */}
+          <div>
+            <div className="flex items-baseline gap-1.5">
+              <span className={`text-xl font-bold tabular-nums ${holdings.length > 0 ? returnColor : 'text-slate-300'}`}>
+                {holdings.length > 0
+                  ? `${liveWeightedReturn >= 0 ? '+' : ''}${(liveWeightedReturn * 100).toFixed(1)}%`
+                  : '—'}
+              </span>
+              <span className="text-xs text-slate-400">
+                vs {(bucketTargetReturn * 100).toFixed(0)}% target
+              </span>
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">Actual return (trailing 12mo)</p>
+          </div>
+
+          <div className="w-px h-8 bg-slate-100 hidden sm:block" />
+
+          {/* Current value */}
+          <div>
+            <div className="text-xl font-bold text-slate-800 tabular-nums">
+              {bucketInitialAmount > 0 && holdings.length > 0
+                ? `$${(currentValue).toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+                : '—'}
+            </div>
+            <p className="text-xs text-slate-400 mt-0.5">Current value</p>
+          </div>
+
+          <div className="w-px h-8 bg-slate-100 hidden sm:block" />
+
+          {/* Holdings count */}
+          <div>
+            <div className="text-xl font-bold text-slate-800 tabular-nums">{holdings.length}</div>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {holdings.length === 1 ? 'holding' : 'holdings'}
+            </p>
+          </div>
+
+          {/* Drift warning badge */}
+          {driftWarning && (
+            <>
+              <div className="w-px h-8 bg-slate-100 hidden sm:block" />
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                <span className="text-xs font-semibold text-amber-700">Rebalance suggested</span>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* Security search */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5">
-        <SecuritySearch bucketId={bucketId} onAdd={handleAddSecurity} />
-      </div>
-
-      {/* Weight editing + manage holdings */}
-      {holdings.length > 0 && (
-        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
-          {/* Header */}
+      {/* ── Section 2 & 3 merged: Holdings + Portfolio Builder ── */}
+      <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
+          {/* Card header */}
           <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between flex-wrap gap-2">
             <div className="flex items-center gap-2">
               <SlidersHorizontal className="w-4 h-4 text-slate-400" />
-              <h4 className="text-sm font-semibold text-slate-700">Manage Holdings &amp; Weights</h4>
-              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${Math.abs(totalWeightPct - 100) < 0.5 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
-                {totalWeightPct.toFixed(1)}%
-              </span>
-              <span className="text-xs text-slate-400">{bucketLifespanYears}yr · {(bucketTargetReturn * 100).toFixed(0)}% target</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={setEqual} className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 border border-slate-200 hover:border-slate-400 rounded-lg text-slate-600 transition-colors">
-                <Equal className="w-3 h-3" /> Equal
-              </button>
-              <button onClick={normalize} className="text-xs font-medium px-2.5 py-1.5 border border-slate-200 hover:border-slate-400 rounded-lg text-slate-600 transition-colors">
-                Normalize
-              </button>
-              <button onClick={suggestWeights} disabled={suggestingWeights}
-                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors disabled:opacity-50">
-                {suggestingWeights ? <Loader2 className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
-                {suggestingWeights ? 'Thinking…' : 'AI Suggest'}
-              </button>
-              {isDirty && (
-                <button onClick={saveWeights} disabled={savingWeights}
-                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors disabled:opacity-50">
-                  {savingWeights ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                  {savingWeights ? 'Saving…' : 'Save Weights'}
-                </button>
-              )}
-              {weightSaved && (
-                <span className="text-xs font-semibold text-emerald-600">Saved ✓</span>
+              <h4 className="text-sm font-semibold text-slate-700">
+                Holdings {holdings.length > 0 && `(${holdings.length})`}
+              </h4>
+              {holdings.length > 0 && (
+                <span
+                  className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                    Math.abs(totalWeightPct - 100) < 0.5
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-amber-100 text-amber-700'
+                  }`}
+                >
+                  {totalWeightPct.toFixed(1)}%
+                </span>
               )}
             </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {holdings.length > 0 && (
+                <>
+                  <button
+                    onClick={setEqual}
+                    className="flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 border border-slate-200 hover:border-slate-400 rounded-lg text-slate-600 transition-colors"
+                  >
+                    <Equal className="w-3 h-3" /> Equal
+                  </button>
+                  <button
+                    onClick={normalize}
+                    className="text-xs font-medium px-2.5 py-1.5 border border-slate-200 hover:border-slate-400 rounded-lg text-slate-600 transition-colors"
+                  >
+                    Normalize
+                  </button>
+                  <button
+                    onClick={suggestWeights}
+                    disabled={suggestingWeights}
+                    className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {suggestingWeights ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Brain className="w-3 h-3" />
+                    )}
+                    {suggestingWeights ? 'Thinking…' : 'AI Weights'}
+                  </button>
+                  {isDirty && (
+                    <button
+                      onClick={saveWeights}
+                      disabled={savingWeights}
+                      className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      {savingWeights ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Save className="w-3 h-3" />
+                      )}
+                      {savingWeights ? 'Saving…' : 'Save'}
+                    </button>
+                  )}
+                  {weightSaved && (
+                    <span className="text-xs font-semibold text-emerald-600">Saved ✓</span>
+                  )}
+                  <div className="w-px h-5 bg-slate-200 mx-1" />
+                </>
+              )}
+              <button
+                onClick={() => setShowBuilder(true)}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors shrink-0"
+              >
+                <Hammer className="w-3 h-3" />
+                AI Builder
+              </button>
+            </div>
+          </div>
+
+          {/* Search bar */}
+          <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/40">
+            <SecuritySearch bucketId={bucketId} onAdd={handleAddSecurity} />
           </div>
 
           {/* AI rationale */}
@@ -271,90 +410,281 @@ export default function BucketDetailClient({
 
           {/* Error */}
           {weightError && (
-            <div className="px-5 py-2 text-xs text-red-600 bg-red-50 border-b border-red-100">{weightError}</div>
+            <div className="px-5 py-2 text-xs text-red-600 bg-red-50 border-b border-red-100">
+              {weightError}
+            </div>
           )}
 
-          {/* Holdings list */}
-          <div className="divide-y divide-slate-50">
-            {holdings.map((h) => {
-              const rating = ratingMap[h.ticker];
-              const ar = rating?.analyst_rating ? ANALYST_LABELS[rating.analyst_rating] : null;
-              const rawPct = parseFloat(editWeights[h.id] ?? '0') || 0;
-              const isModified = editWeights[h.id] !== (h.weight * 100).toFixed(1);
-              const liveWeight = totalWeightPct > 0 ? rawPct / totalWeightPct : 1 / holdings.length;
-              const dollarAmount = bucketInitialAmount > 0 ? bucketInitialAmount * liveWeight : 0;
-
-              return (
-                <div key={h.id} className={`flex items-center gap-3 px-5 py-3 ${isModified ? 'bg-violet-50/40' : ''}`}>
-                  {/* Ticker */}
-                  <span className="font-mono font-bold text-sm text-slate-800 bg-slate-100 px-2 py-0.5 rounded shrink-0 w-16 text-center">
-                    {h.ticker}
-                  </span>
-
-                  {/* Weight input */}
-                  <div className="flex items-center gap-1 shrink-0">
-                    <input
-                      type="number"
-                      min={0} max={100} step={0.5}
-                      value={editWeights[h.id] ?? ''}
-                      onChange={e => setEditWeights(prev => ({ ...prev, [h.id]: e.target.value }))}
-                      className={`w-16 text-center border rounded-lg px-2 py-1 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent ${isModified ? 'border-violet-300' : 'border-slate-200'}`}
-                    />
-                    <span className="text-slate-400 text-xs">%</span>
-                  </div>
-
-                  {/* Weight bar */}
-                  <div className="w-20 shrink-0">
-                    <div className="bg-slate-100 rounded-full h-1.5">
-                      <div className={`h-1.5 rounded-full transition-all ${isModified ? 'bg-violet-500' : 'bg-emerald-400'}`}
-                        style={{ width: `${Math.min(liveWeight * 100, 100)}%` }} />
-                    </div>
-                  </div>
-
-                  {/* Ratings + meta */}
-                  <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
-                    {ar && (
-                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${ar.color}`}>
-                        {ar.label}
-                        {rating?.analyst_count ? <span className="font-normal ml-1 opacity-70">({rating.analyst_count})</span> : null}
-                      </span>
-                    )}
-                    {!ar && rating?.fund_category && (
-                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
-                        {rating.fund_category}
-                      </span>
-                    )}
-                    {rating?.yield_rate != null && (
-                      <span className="text-xs text-slate-400">{(rating.yield_rate * 100).toFixed(2)}% yield</span>
-                    )}
-                    {rating?.five_year_return != null && (
-                      <span className="text-xs text-slate-400">5yr: <span className={rating.five_year_return >= 0 ? 'text-emerald-600 font-medium' : 'text-red-500 font-medium'}>{(rating.five_year_return * 100).toFixed(1)}%</span></span>
-                    )}
-                    {rating?.ten_year_return != null && (
-                      <span className="text-xs text-slate-400">10yr: <span className={rating.ten_year_return >= 0 ? 'text-emerald-600 font-medium' : 'text-red-500 font-medium'}>{(rating.ten_year_return * 100).toFixed(1)}%</span></span>
-                    )}
-                  </div>
-
-                  {/* Dollar amount */}
-                  {dollarAmount > 0 && (
-                    <span className="text-xs text-slate-500 shrink-0">
-                      ${dollarAmount.toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                    </span>
+          {/* Table — only show when there are holdings */}
+          {holdings.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-slate-400 border-b border-slate-100 bg-slate-50/60">
+                  <th className="text-left px-5 py-2.5 font-medium">Ticker</th>
+                  <th className="text-left px-4 py-2.5 font-medium w-36">Weight %</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Name</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Category / Ratings</th>
+                  <th className="text-right px-4 py-2.5 font-medium">Price</th>
+                  <th className="text-right px-4 py-2.5 font-medium">1yr Return</th>
+                  {bucketInitialAmount > 0 && (
+                    <th className="text-right px-4 py-2.5 font-medium">Value</th>
                   )}
+                  <th className="px-4 py-2.5 w-10" />
+                </tr>
+              </thead>
+              <tbody>
+                {holdings.map((h) => {
+                  const rating = ratingMap[h.ticker];
+                  const ar = rating?.analyst_rating ? ANALYST_LABELS[rating.analyst_rating] : null;
+                  const yr = h.quote?.year_return;
+                  const rawPct = parseFloat(editWeights[h.id] ?? '0') || 0;
+                  const isModified = editWeights[h.id] !== (h.weight * 100).toFixed(1);
+                  const liveWeight = totalWeightPct > 0 ? rawPct / totalWeightPct : 1 / holdings.length;
+                  const holdingValue =
+                    h.quantity > 0 && h.quote?.price
+                      ? h.quantity * h.quote.price
+                      : liveWeight * bucketInitialAmount;
 
-                  {/* Delete */}
-                  <button
-                    onClick={() => handleDelete(h.id)}
-                    disabled={deleting === h.id}
-                    className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 shrink-0"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              );
-            })}
+                  return (
+                    <tr
+                      key={h.id}
+                      className={`border-b border-slate-50 transition-colors ${
+                        isModified ? 'bg-violet-50/50' : 'hover:bg-slate-50/70'
+                      }`}
+                    >
+                      {/* Ticker */}
+                      <td className="px-5 py-3">
+                        <span className="font-mono font-bold text-slate-800 bg-slate-100 px-2 py-0.5 rounded text-xs">
+                          {h.ticker}
+                        </span>
+                      </td>
+
+                      {/* Weight input + bar */}
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              min={0}
+                              max={100}
+                              step={0.5}
+                              value={editWeights[h.id] ?? ''}
+                              onChange={e =>
+                                setEditWeights(prev => ({ ...prev, [h.id]: e.target.value }))
+                              }
+                              className={`w-14 text-center border rounded-lg px-1.5 py-1 text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent ${
+                                isModified ? 'border-violet-300' : 'border-slate-200'
+                              }`}
+                            />
+                            <span className="text-slate-400 text-xs">%</span>
+                          </div>
+                          <div className="w-14 shrink-0">
+                            <div className="bg-slate-100 rounded-full h-1.5">
+                              <div
+                                className={`h-1.5 rounded-full transition-all ${
+                                  isModified ? 'bg-violet-400' : 'bg-emerald-400'
+                                }`}
+                                style={{ width: `${Math.min(liveWeight * 100, 100)}%` }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Name */}
+                      <td className="px-4 py-3 text-slate-600 max-w-[160px]">
+                        <span className="truncate block">{h.name || h.quote?.name || h.ticker}</span>
+                      </td>
+
+                      {/* Category / Ratings */}
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col gap-1">
+                          {ar ? (
+                            <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full w-fit ${ar.color}`}>
+                              {ar.label}
+                              {rating?.analyst_count ? (
+                                <span className="font-normal ml-1 opacity-70">({rating.analyst_count})</span>
+                              ) : null}
+                            </span>
+                          ) : rating?.fund_category ? (
+                            <span className="inline-block text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 w-fit">
+                              {rating.fund_category}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-300">—</span>
+                          )}
+                          {rating?.yield_rate != null && (
+                            <span className="text-xs text-slate-400">
+                              Yield:{' '}
+                              <span className="font-semibold text-emerald-700">
+                                {(rating.yield_rate * 100).toFixed(2)}%
+                              </span>
+                            </span>
+                          )}
+                          {(rating?.three_year_return != null ||
+                            rating?.five_year_return != null ||
+                            rating?.ten_year_return != null ||
+                            rating?.twenty_year_return != null) && (
+                            <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+                              {rating?.three_year_return != null && (
+                                <span className="text-xs text-slate-400">
+                                  3yr:{' '}
+                                  <span
+                                    className={`font-semibold ${
+                                      rating.three_year_return >= 0 ? 'text-emerald-600' : 'text-red-500'
+                                    }`}
+                                  >
+                                    {(rating.three_year_return * 100).toFixed(1)}%
+                                  </span>
+                                </span>
+                              )}
+                              {rating?.five_year_return != null && (
+                                <span className="text-xs text-slate-400">
+                                  5yr:{' '}
+                                  <span
+                                    className={`font-semibold ${
+                                      rating.five_year_return >= 0 ? 'text-emerald-600' : 'text-red-500'
+                                    }`}
+                                  >
+                                    {(rating.five_year_return * 100).toFixed(1)}%
+                                  </span>
+                                </span>
+                              )}
+                              {rating?.ten_year_return != null && (
+                                <span className="text-xs text-slate-400">
+                                  10yr:{' '}
+                                  <span
+                                    className={`font-semibold ${
+                                      rating.ten_year_return >= 0 ? 'text-emerald-600' : 'text-red-500'
+                                    }`}
+                                  >
+                                    {(rating.ten_year_return * 100).toFixed(1)}%
+                                  </span>
+                                </span>
+                              )}
+                              {rating?.twenty_year_return != null && (
+                                <span className="text-xs text-slate-400">
+                                  20yr:{' '}
+                                  <span
+                                    className={`font-semibold ${
+                                      rating.twenty_year_return >= 0 ? 'text-emerald-600' : 'text-red-500'
+                                    }`}
+                                  >
+                                    {(rating.twenty_year_return * 100).toFixed(1)}%
+                                  </span>
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Price */}
+                      <td className="px-4 py-3 text-right text-slate-600 tabular-nums">
+                        {h.quote?.price ? `$${h.quote.price.toFixed(2)}` : '—'}
+                      </td>
+
+                      {/* 1yr Return */}
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {yr !== undefined ? (
+                          <span
+                            className={`font-semibold ${
+                              yr >= 0 ? 'text-emerald-600' : 'text-red-500'
+                            }`}
+                          >
+                            {yr >= 0 ? '+' : ''}
+                            {(yr * 100).toFixed(1)}%
+                          </span>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </td>
+
+                      {/* Value */}
+                      {bucketInitialAmount > 0 && (
+                        <td className="px-4 py-3 text-right text-slate-600 tabular-nums">
+                          ${holdingValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        </td>
+                      )}
+
+                      {/* Delete */}
+                      <td className="px-4 py-3">
+                        <button
+                          onClick={() => handleDelete(h.id)}
+                          disabled={deleting === h.id}
+                          className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                        >
+                          {deleting === h.id ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+
+              {/* Footer totals */}
+              <tfoot>
+                <tr className="bg-slate-50 text-xs font-semibold text-slate-600 border-t border-slate-100">
+                  <td className="px-5 py-3">Total</td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`${
+                        Math.abs(totalWeightPct - 100) < 0.5
+                          ? 'text-emerald-700'
+                          : 'text-amber-600'
+                      }`}
+                    >
+                      {totalWeightPct.toFixed(1)}%
+                    </span>
+                  </td>
+                  <td className="px-4 py-3" />
+                  <td className="px-4 py-3" />
+                  <td className="px-4 py-3" />
+                  <td className="px-4 py-3 text-right">
+                    {holdings.length > 0 ? (
+                      <span
+                        className={
+                          liveWeightedReturn >= bucketTargetReturn
+                            ? 'text-emerald-700'
+                            : 'text-amber-600'
+                        }
+                      >
+                        {liveWeightedReturn >= 0 ? '+' : ''}
+                        {(liveWeightedReturn * 100).toFixed(1)}%
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  {bucketInitialAmount > 0 && (
+                    <td className="px-4 py-3 text-right">
+                      ${liveTotalValue.toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </td>
+                  )}
+                  <td className="px-4 py-3" />
+                </tr>
+              </tfoot>
+            </table>
           </div>
+          )}
         </div>
+
+      {/* ── Section 3: Stress Test ── */}
+      {holdings.length > 0 && bucketInitialAmount > 0 && (
+        <StressTestPanel
+          holdings={holdings.map(h => ({
+            weight: h.weight,
+            year_return: h.quote?.year_return,
+            asset_type: h.asset_type,
+          }))}
+          lifespan_years={bucketLifespanYears}
+          initial_amount={bucketInitialAmount}
+        />
       )}
 
       {/* Builder modal */}
