@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, ExternalLink, TrendingUp } from 'lucide-react';
+import { ArrowLeft, ExternalLink, TrendingUp, Brain } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import type { BucketWithHoldings } from '@/lib/types';
 import PortfolioClient from './PortfolioClient';
@@ -89,9 +89,14 @@ export default async function PortfolioPage({ params }: Props) {
             )}
           </div>
 
-          <div className="flex items-start gap-4">
-            <Link href={`/dashboard/portfolio/${portfolioId}/monte-carlo`}
+          <div className="flex items-start gap-3">
+            <Link href={`#ai-analysis`}
               className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold rounded-xl transition-colors">
+              <Brain className="w-4 h-4" />
+              Analyse &amp; Rebalance
+            </Link>
+            <Link href={`/dashboard/portfolio/${portfolioId}/monte-carlo`}
+              className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold rounded-xl transition-colors">
               <TrendingUp className="w-4 h-4" />
               Monte Carlo
             </Link>

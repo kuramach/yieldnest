@@ -173,31 +173,45 @@ export default function PortfolioAnalysisPanel({ portfolioId }: { portfolioId: n
   );
 
   return (
-    <div className="mt-8 border-t border-slate-100 pt-6">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <Brain className="w-5 h-5 text-violet-500" />
-          <h2 className="font-semibold text-slate-800">AI Analysis History</h2>
-          {analyses.length > 0 && (
-            <span className="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-semibold">
-              {analyses.length}
-            </span>
-          )}
+    <div id="ai-analysis" className="mt-8 border-t border-slate-100 pt-6">
+      <div className="flex items-start justify-between mb-2">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <Brain className="w-5 h-5 text-violet-500" />
+            <h2 className="font-semibold text-slate-800">AI Analysis &amp; Rebalancing</h2>
+            {analyses.length > 0 && (
+              <span className="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-semibold">
+                {analyses.length} saved
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-slate-400 max-w-lg">
+            AI fetches 20yr historical data for every holding, scores each by CAGR and risk-adjusted return, writes a narrative, and suggests new weights.
+            <span className="font-semibold text-slate-500"> Rebalance</span> = apply the AI-optimised weights to your bucket holdings. Run it any time.
+          </p>
         </div>
         <button onClick={runNewAnalysis} disabled={running}
-          className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50">
+          className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50 shrink-0 ml-4">
           {running ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Brain className="w-3.5 h-3.5" />}
           {running ? 'Analysing…' : 'Run New Analysis'}
         </button>
       </div>
 
-      {runError && <p className="text-sm text-rose-500 mb-3">{runError}</p>}
-      {applySuccess && <p className="text-sm text-emerald-600 mb-3">Portfolio weights updated successfully.</p>}
-      {applyError && <p className="text-sm text-rose-500 mb-3">{applyError}</p>}
+      {runError && <p className="text-sm text-rose-500 mt-3">{runError}</p>}
+      {applySuccess && <p className="text-sm text-emerald-600 mt-3">Portfolio weights updated successfully.</p>}
+      {applyError && <p className="text-sm text-rose-500 mt-3">{applyError}</p>}
 
+      <div className="mt-4">
       {analyses.length === 0 ? (
-        <div className="text-center py-8 border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 text-sm">
-          No analyses yet — click "Run New Analysis" to start
+        <div className="text-center py-10 border-2 border-dashed border-slate-200 rounded-2xl">
+          <Brain className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+          <p className="text-slate-500 font-medium text-sm mb-1">No analyses yet</p>
+          <p className="text-slate-400 text-xs mb-4">Click "Run New Analysis" above — works on any portfolio with holdings</p>
+          <button onClick={runNewAnalysis} disabled={running}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50">
+            {running ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Brain className="w-3.5 h-3.5" />}
+            {running ? 'Analysing…' : 'Run First Analysis'}
+          </button>
         </div>
       ) : (
         <div className="space-y-3">
@@ -333,6 +347,7 @@ export default function PortfolioAnalysisPanel({ portfolioId }: { portfolioId: n
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 }
