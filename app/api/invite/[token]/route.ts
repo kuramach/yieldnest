@@ -72,10 +72,19 @@ export async function POST(_req: NextRequest, { params }: Params) {
 
   if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
 
+  // Fetch portfolio_id so we can build the correct bucket URL
+  const { data: bucket } = await supabase
+    .from('buckets')
+    .select('portfolio_id')
+    .eq('id', updated.bucket_id)
+    .single();
+
+  const portfolioId = bucket?.portfolio_id ?? 0;
+
   return NextResponse.json({
     success: true,
     bucket_id: updated.bucket_id,
     role: updated.role,
-    redirect: `/dashboard/portfolio/collab/bucket/${updated.bucket_id}`,
+    redirect: `/dashboard/portfolio/${portfolioId}/bucket/${updated.bucket_id}`,
   });
 }

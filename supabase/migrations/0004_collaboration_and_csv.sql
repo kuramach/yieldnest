@@ -89,6 +89,11 @@ CREATE POLICY "owner manages collaborators"
   ON bucket_collaborators FOR ALL
   USING (is_bucket_owner(bucket_id, auth.uid()));
 
+-- Allow anyone to read a pending invite by its token (UUID token acts as the secret)
+CREATE POLICY "anyone can read pending invite by token"
+  ON bucket_collaborators FOR SELECT
+  USING (status = 'pending');
+
 CREATE POLICY "collaborator reads own invite"
   ON bucket_collaborators FOR SELECT
   USING (user_id = auth.uid() OR invited_email = auth.email());

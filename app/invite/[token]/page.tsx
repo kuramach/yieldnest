@@ -52,15 +52,13 @@ export default function InvitePage() {
       const json = await res.json();
       if (!res.ok) {
         if (res.status === 401) {
-          // Not signed in — redirect to login with return URL
           router.push(`/login?next=/invite/${token}`);
           return;
         }
         setAcceptError(json.error ?? 'Failed to accept invite');
         return;
       }
-      // Redirect to dashboard after accepting
-      router.push('/dashboard');
+      router.push(json.redirect ?? '/dashboard');
     } finally {
       setAccepting(false);
     }
