@@ -2,9 +2,12 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Trash2, Brain, Equal, Save, Loader2, SlidersHorizontal, Hammer, AlertTriangle, TrendingUp } from 'lucide-react';
+import { Trash2, Brain, Equal, Save, Loader2, SlidersHorizontal, Hammer, AlertTriangle, TrendingUp, Upload } from 'lucide-react';
 import SecuritySearch from '@/components/SecuritySearch';
 import BuilderModal from '@/components/BuilderModal';
+import CsvImportModal from '@/components/CsvImportModal';
+import CollaboratorsPanel from '@/components/CollaboratorsPanel';
+import ProposalsPanel from '@/components/ProposalsPanel';
 import StressTestPanel from './StressTestPanel';
 import type { BucketHolding, SecurityQuote, SuggestedPortfolio, TickerRating } from '@/lib/types';
 
@@ -28,6 +31,8 @@ interface Props {
   bucketTargetReturn: number;
   bucketLifespanYears: number;
   bucketInitialAmount: number;
+  isOwner?: boolean;
+  collaboratorRole?: string;
 }
 
 export default function BucketDetailClient({
@@ -42,9 +47,12 @@ export default function BucketDetailClient({
   bucketTargetReturn,
   bucketLifespanYears,
   bucketInitialAmount,
+  isOwner = true,
+  collaboratorRole,
 }: Props) {
   const router = useRouter();
   const [showBuilder, setShowBuilder] = useState(false);
+  const [showCsvModal, setShowCsvModal] = useState(false);
   const [deleting, setDeleting] = useState<number | null>(null);
 
   // Seed rating map from server-fetched prop; only re-fetch after mutations
@@ -473,6 +481,39 @@ export default function BucketDetailClient({
             )}
           </div>
 
+          {/* Real P&L — shown when cost_basis is populated */}
+          {(() => {
+            const holdingsWithCostBasis = holdings.filter(h => h.cost_basis != null && h.cost_basis > 0);
+            if (holdingsWithCostBasis.length === 0) return null;
+            const totalCostBasis = holdingsWithCostBasis.reduce((s, h) => s + (h.cost_basis ?? 0), 0);
+            const unrealizedGain = currentValue - totalCostBasis;
+            const brokerages = [...new Set(holdingsWithCostBasis.map(h => h.brokerage).filter(Boolean))];
+            const brokerageLabel = brokerages.length === 1 ? brokerages[0] : null;
+            return (
+              <>
+                <div className="w-px h-8 bg-slate-100 hidden sm:block" />
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`text-xl font-bold tabular-nums ${
+                        unrealizedGain >= 0 ? 'text-emerald-600' : 'text-red-500'
+                      }`}
+                    >
+                      {unrealizedGain >= 0 ? '+' : ''}
+                      ${Math.abs(unrealizedGain).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                    </span>
+                    {brokerageLabel && (
+                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 capitalize">
+                        via {brokerageLabel}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">Unrealized gain/loss</p>
+                </div>
+              </>
+            );
+          })()}
+
           {/* Drift warning badge */}
           {driftWarning && (
             <>
@@ -554,6 +595,13 @@ export default function BucketDetailClient({
                   <div className="w-px h-5 bg-slate-200 mx-1" />
                 </>
               )}
+              <button
+                onClick={() => setShowCsvModal(true)}
+                className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 border border-slate-200 hover:border-slate-400 text-slate-600 rounded-lg transition-colors shrink-0"
+              >
+                <Upload className="w-3 h-3" />
+                Import CSV
+              </button>
               <button
                 onClick={() => setShowBuilder(true)}
                 className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors shrink-0"
@@ -856,12 +904,43 @@ export default function BucketDetailClient({
         />
       )}
 
+      {/* ── Proposals Panel ── */}
+      <ProposalsPanel
+        bucketId={bucketId}
+        isOwner={isOwner}
+        holdings={holdings.map(h => ({
+          id: h.id,
+          ticker: h.ticker,
+          name: h.name,
+          weight: h.weight,
+          asset_type: h.asset_type,
+        }))}
+        bucketTargetReturn={bucketTargetReturn}
+        bucketLifespanYears={bucketLifespanYears}
+      />
+
+      {/* ── Collaborators Panel (owner only) ── */}
+      {isOwner !== false && (
+        <CollaboratorsPanel bucketId={bucketId} />
+      )}
+
       {/* Builder modal */}
       {showBuilder && (
         <BuilderModal
           bucketId={bucketId}
           onClose={() => setShowBuilder(false)}
           onApply={handleApplyPortfolio}
+        />
+      )}
+
+      {/* CSV Import modal */}
+      {showCsvModal && (
+        <CsvImportModal
+          bucketId={bucketId}
+          onSuccess={() => {
+            setShowCsvModal(false);
+            router.refresh();
+          }}
         />
       )}
     </div>

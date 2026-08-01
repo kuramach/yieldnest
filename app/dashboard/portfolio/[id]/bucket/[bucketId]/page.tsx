@@ -71,14 +71,34 @@ export default async function BucketDetailPage({ params }: Props) {
     .eq('id', portfolioId)
     .eq('user_id', user!.id)
     .single();
-  if (!portfolio) notFound();
 
-  const { data: bucket } = await supabase
+  // Check collaborator access if not owner
+  const { data: collab } = !portfolio
+    ? await supabase
+        .from('bucket_collaborators')
+        .select('role')
+        .eq('bucket_id', bucketIdNum)
+        .eq('user_id', user!.id)
+        .eq('status', 'active')
+        .single()
+    : { data: null };
+
+  if (!portfolio && !collab) notFound();
+
+  const isOwner = !!portfolio;
+  const collaboratorRole = collab?.role as 'editor' | 'viewer' | undefined;
+
+  // For collaborators, fetch bucket without portfolio_id restriction
+  const bucketQuery = supabase
     .from('buckets')
     .select('*')
-    .eq('id', bucketIdNum)
-    .eq('portfolio_id', portfolioId)
-    .single();
+    .eq('id', bucketIdNum);
+
+  if (isOwner) {
+    bucketQuery.eq('portfolio_id', portfolioId);
+  }
+
+  const { data: bucket } = await bucketQuery.single();
   if (!bucket) notFound();
 
   const { data: holdings } = await supabase
@@ -133,11 +153,11 @@ export default async function BucketDetailPage({ params }: Props) {
     <div className="p-6 max-w-5xl mx-auto">
       {/* Breadcrumb */}
       <Link
-        href={`/dashboard/portfolio/${portfolioId}`}
+        href={isOwner ? `/dashboard/portfolio/${portfolioId}` : '/dashboard'}
         className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600 mb-5 transition-colors w-fit"
       >
         <ArrowLeft className="w-3.5 h-3.5" />
-        {portfolio.name}
+        {portfolio?.name ?? 'Dashboard'}
       </Link>
 
       <BucketDetailClient
@@ -152,6 +172,8 @@ export default async function BucketDetailPage({ params }: Props) {
         bucketTargetReturn={bucket.target_return}
         bucketLifespanYears={bucket.lifespan_years}
         bucketInitialAmount={bucket.initial_amount}
+        isOwner={isOwner}
+        collaboratorRole={collaboratorRole}
       />
     </div>
   );
