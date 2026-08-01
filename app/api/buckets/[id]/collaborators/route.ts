@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { Resend } from 'resend';
+
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -71,6 +74,45 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const inviteUrl = `${process.env.NEXT_PUBLIC_APP_URL}/invite/${data.invite_token}`;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://yieldnest.vercel.app';
+  const inviteUrl = `${appUrl}/invite/${data.invite_token}`;
+
+  // Look up the bucket name for the email
+  const { data: bucket } = await supabase
+    .from('buckets')
+    .select('name, portfolios(name)')
+    .eq('id', bucketId)
+    .single();
+
+  const bucketName    = bucket?.name ?? 'a bucket';
+  const portfolioName = (bucket?.portfolios as any)?.name;
+  const inviterName   = user.email ?? 'Someone';
+
+  if (resend) {
+    await resend.emails.send({
+      from:    'YieldNest <invites@yieldnest.app>',
+      to:      email,
+      subject: `${inviterName} invited you to collaborate on "${bucketName}"`,
+      html: `
+        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#fff;border-radius:16px;border:1px solid #e2e8f0">
+          <h2 style="margin:0 0 8px;font-size:20px;color:#0f172a">You've been invited to collaborate</h2>
+          ${portfolioName ? `<p style="margin:0 0 16px;color:#64748b;font-size:14px">Portfolio: <strong>${portfolioName}</strong></p>` : ''}
+          <p style="margin:0 0 20px;color:#334155;font-size:15px">
+            <strong>${inviterName}</strong> has invited you as a <strong>${role}</strong> on the bucket <strong>"${bucketName}"</strong>.
+          </p>
+          <a href="${inviteUrl}" style="display:inline-block;padding:12px 24px;background:#059669;color:#fff;border-radius:10px;text-decoration:none;font-weight:600;font-size:14px">
+            Accept Invite
+          </a>
+          <p style="margin:20px 0 0;color:#94a3b8;font-size:12px">
+            Or copy this link: ${inviteUrl}
+          </p>
+          <p style="margin:12px 0 0;color:#94a3b8;font-size:11px">
+            This invite is for ${email} only. You must sign in with this email to accept.
+          </p>
+        </div>
+      `,
+    }).catch(err => console.error('Resend error:', err));
+  }
+
   return NextResponse.json({ collaborator: data, invite_url: inviteUrl }, { status: 201 });
 }
