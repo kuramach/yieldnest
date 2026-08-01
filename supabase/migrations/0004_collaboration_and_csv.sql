@@ -91,15 +91,11 @@ CREATE POLICY "owner manages collaborators"
 
 CREATE POLICY "collaborator reads own invite"
   ON bucket_collaborators FOR SELECT
-  USING (user_id = auth.uid() OR invited_email = (
-    SELECT email FROM auth.users WHERE id = auth.uid()
-  ));
+  USING (user_id = auth.uid() OR invited_email = auth.email());
 
 CREATE POLICY "collaborator accepts own invite"
   ON bucket_collaborators FOR UPDATE
-  USING (invited_email = (
-    SELECT email FROM auth.users WHERE id = auth.uid()
-  ));
+  USING (invited_email = auth.email());
 
 -- bucket_proposals: owner reads/resolves all; collaborator creates/reads/withdraws own
 CREATE POLICY "owner sees all proposals"
