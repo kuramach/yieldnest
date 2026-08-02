@@ -90,7 +90,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   if (resend) {
     await resend.emails.send({
-      from:    'YieldNest <invites@yieldnest.app>',
+      from:    'YieldNest <invites@eazybudget.com>',
       to:      email,
       subject: `${inviterName} invited you to collaborate on "${bucketName}"`,
       html: `
