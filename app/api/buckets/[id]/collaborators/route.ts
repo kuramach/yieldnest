@@ -74,7 +74,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://yieldnest.vercel.app';
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? 'https://yieldnest.eazybudget.com';
   const inviteUrl = `${appUrl}/invite/${data.invite_token}`;
 
   // Look up the bucket name for the email
@@ -90,7 +90,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   if (resend) {
     await resend.emails.send({
-      from:    'YieldNest <invites@eazybudget.com>',
+      from:    'YieldNest <noreply@eazybudget.com>',
       to:      email,
       subject: `${inviterName} invited you to collaborate on "${bucketName}"`,
       html: `
