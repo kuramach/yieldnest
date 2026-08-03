@@ -25,6 +25,7 @@ export default function SecuritySearch({ bucketId, onAdd }: SecuritySearchProps)
   const [selected, setSelected] = useState<SecurityQuote | null>(null);
   const [weight, setWeight] = useState(10);
   const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
 
   const searchSecurities = useCallback(
@@ -70,12 +71,15 @@ export default function SecuritySearch({ bucketId, onAdd }: SecuritySearchProps)
   async function handleAdd() {
     if (!selected || !bucketId) return;
     setAdding(true);
+    setAddError('');
     try {
       await onAdd(selected, weight / 100);
       setSelected(null);
       setQuery('');
       setResults([]);
       setWeight(10);
+    } catch (err: unknown) {
+      setAddError(err instanceof Error ? err.message : 'Failed to add holding');
     } finally {
       setAdding(false);
     }
@@ -176,9 +180,15 @@ export default function SecuritySearch({ bucketId, onAdd }: SecuritySearchProps)
             </div>
           </div>
 
+          {addError && (
+            <div className="px-3 py-2 bg-red-50 border border-red-100 rounded-lg text-xs text-red-600">
+              {addError}
+            </div>
+          )}
+
           <div className="flex gap-2">
             <button
-              onClick={() => { setSelected(null); setQuery(''); }}
+              onClick={() => { setSelected(null); setQuery(''); setAddError(''); }}
               className="px-3 py-2 border border-slate-200 text-slate-600 text-xs font-medium rounded-lg hover:bg-slate-50 transition-colors"
             >
               Cancel

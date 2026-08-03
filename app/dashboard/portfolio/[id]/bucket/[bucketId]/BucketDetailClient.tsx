@@ -63,6 +63,23 @@ export default function BucketDetailClient({
     Object.fromEntries(holdings.map(h => [h.id, (h.weight * 100).toFixed(1)]))
   );
   const [savingWeights, setSavingWeights] = useState(false);
+
+  // Sync editWeights when holdings prop changes (e.g. after router.refresh())
+  useEffect(() => {
+    setEditWeights(prev => {
+      const next = { ...prev };
+      const activeIds = new Set(holdings.map(h => h.id));
+      // Add entries for new holdings; don't overwrite in-progress edits
+      for (const h of holdings) {
+        if (!(h.id in next)) next[h.id] = (h.weight * 100).toFixed(1);
+      }
+      // Remove stale ids for deleted holdings
+      for (const key in next) {
+        if (!activeIds.has(Number(key))) delete next[key];
+      }
+      return next;
+    });
+  }, [holdings]);
   const [suggestingWeights, setSuggestingWeights] = useState(false);
   const [weightRationale, setWeightRationale] = useState('');
   const [weightError, setWeightError] = useState('');
