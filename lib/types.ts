@@ -6,6 +6,7 @@ export interface Portfolio {
   linked_360r_scenario_id?: number;
   is_public: boolean;
   imported_from_id?: number;
+  status: 'draft' | 'deployed';
   created_at: string;
 }
 

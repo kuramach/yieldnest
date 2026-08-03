@@ -68,12 +68,13 @@ export async function PUT(request: NextRequest, { params }: Params) {
   if (isNaN(portfolioId)) return NextResponse.json({ error: 'Invalid ID' }, { status: 400 });
 
   const body = await request.json();
-  const { name, description, linked_360r_scenario_id } = body;
+  const { name, description, linked_360r_scenario_id, status } = body;
 
   const updates: Record<string, unknown> = {};
   if (name !== undefined) updates.name = name.trim();
   if (description !== undefined) updates.description = description?.trim() || null;
   if (linked_360r_scenario_id !== undefined) updates.linked_360r_scenario_id = linked_360r_scenario_id;
+  if (status === 'draft' || status === 'deployed') updates.status = status;
 
   const { data, error } = await supabase
     .from('portfolios')

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Plus, Loader2 } from 'lucide-react';
+import { Plus, Loader2, RefreshCw, CheckCircle2, FlaskConical } from 'lucide-react';
 import BucketCard from '@/components/BucketCard';
 import BuilderModal from '@/components/BuilderModal';
 import type { BucketWithHoldings, SuggestedPortfolio } from '@/lib/types';
@@ -11,15 +11,57 @@ import type { BucketWithHoldings, SuggestedPortfolio } from '@/lib/types';
 interface Props {
   portfolioId: number;
   initialBuckets: BucketWithHoldings[];
+  initialStatus: 'draft' | 'deployed';
+  linked360rScenarioId?: number;
 }
 
-export default function PortfolioClient({ portfolioId, initialBuckets }: Props) {
+export default function PortfolioClient({ portfolioId, initialBuckets, initialStatus, linked360rScenarioId }: Props) {
   const router = useRouter();
   const [buckets, setBuckets] = useState<BucketWithHoldings[]>(initialBuckets);
   const [showAddBucket, setShowAddBucket] = useState(false);
   const [builderBucketId, setBuilderBucketId] = useState<number | null>(null);
   const [addBucketLoading, setAddBucketLoading] = useState(false);
   const [addBucketError, setAddBucketError] = useState('');
+
+  // Status
+  const [status, setStatus] = useState<'draft' | 'deployed'>(initialStatus);
+  const [togglingStatus, setTogglingStatus] = useState(false);
+
+  // 360R sync
+  const [syncing360r, setSyncing360r] = useState(false);
+  const [syncResult, setSyncResult] = useState<{ return: number; ts: Date } | null>(null);
+  const [syncError, setSyncError] = useState('');
+
+  async function toggleStatus() {
+    const next = status === 'draft' ? 'deployed' : 'draft';
+    setTogglingStatus(true);
+    try {
+      const res = await fetch(`/api/portfolios/${portfolioId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: next }),
+      });
+      if (res.ok) setStatus(next);
+    } finally {
+      setTogglingStatus(false);
+    }
+  }
+
+  async function sync360r() {
+    setSyncing360r(true);
+    setSyncError('');
+    setSyncResult(null);
+    try {
+      const res = await fetch(`/api/portfolios/${portfolioId}/sync-360r`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) { setSyncError(data.error || 'Sync failed'); return; }
+      setSyncResult({ return: data.portfolio_return, ts: new Date() });
+    } catch {
+      setSyncError('Network error');
+    } finally {
+      setSyncing360r(false);
+    }
+  }
 
   // New bucket form state
   const [bucketName, setBucketName] = useState('');
@@ -109,6 +151,59 @@ export default function PortfolioClient({ portfolioId, initialBuckets }: Props) 
 
   return (
     <>
+      {/* Status + 360R sync bar */}
+      <div className="flex flex-wrap items-center gap-3 mb-6 p-4 bg-white border border-slate-200 rounded-2xl">
+        {/* Status toggle */}
+        <div className="flex items-center gap-3 flex-1">
+          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</span>
+          <button
+            onClick={toggleStatus}
+            disabled={togglingStatus}
+            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all disabled:opacity-50 ${
+              status === 'deployed'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+            }`}
+          >
+            {togglingStatus ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : status === 'deployed' ? (
+              <CheckCircle2 className="w-3 h-3" />
+            ) : (
+              <FlaskConical className="w-3 h-3" />
+            )}
+            {status === 'deployed' ? 'Deployed' : 'Draft'}
+          </button>
+          <span className="text-xs text-slate-400">
+            {status === 'deployed'
+              ? 'Cash deployed at brokerage — click to revert to Draft'
+              : 'Still being researched — click to mark as Deployed'}
+          </span>
+        </div>
+
+        {/* 360R sync */}
+        {linked360rScenarioId && (
+          <div className="flex items-center gap-3 shrink-0">
+            {syncResult && (
+              <span className="text-xs text-emerald-600 font-medium">
+                Synced {(syncResult.return * 100).toFixed(2)}% → 360R ✓
+              </span>
+            )}
+            {syncError && (
+              <span className="text-xs text-red-500">{syncError}</span>
+            )}
+            <button
+              onClick={sync360r}
+              disabled={syncing360r}
+              className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50"
+            >
+              {syncing360r ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+              Sync Returns → 360R
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Buckets section */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">

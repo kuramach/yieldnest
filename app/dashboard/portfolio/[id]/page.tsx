@@ -113,6 +113,8 @@ export default async function PortfolioPage({ params }: Props) {
       <PortfolioClient
         portfolioId={portfolioId}
         initialBuckets={bucketsWithHoldings}
+        initialStatus={portfolio.status ?? 'draft'}
+        linked360rScenarioId={portfolio.linked_360r_scenario_id ?? undefined}
       />
 
       <PortfolioAnalysisPanel portfolioId={portfolioId} />
