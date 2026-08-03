@@ -67,7 +67,7 @@ export default async function BucketDetailPage({ params }: Props) {
   // Verify ownership
   const { data: portfolio } = await supabase
     .from('portfolios')
-    .select('id, name')
+    .select('id, name, description, status')
     .eq('id', portfolioId)
     .eq('user_id', user!.id)
     .single();
@@ -157,12 +157,15 @@ export default async function BucketDetailPage({ params }: Props) {
         className="flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-600 mb-5 transition-colors w-fit"
       >
         <ArrowLeft className="w-3.5 h-3.5" />
-        {portfolio?.name ?? 'Dashboard'}
+        All portfolios
       </Link>
 
       <BucketDetailClient
         bucketId={bucketIdNum}
         portfolioId={portfolioId}
+        portfolioName={portfolio?.name ?? 'Portfolio'}
+        portfolioDescription={portfolio?.description ?? undefined}
+        portfolioStatus={portfolio?.status ?? 'draft'}
         bucketName={bucket.name}
         holdings={holdingsWithQuotes as (BucketHolding & { quote?: SecurityQuote })[]}
         initialRatingMap={ratingMap}
