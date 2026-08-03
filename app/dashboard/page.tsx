@@ -33,8 +33,12 @@ export default async function DashboardPage() {
     buckets: allBuckets.filter((b) => b.portfolio_id === p.id),
   }));
 
-  // Aggregate stats
-  const totalInvested = allBuckets.reduce((sum, b) => sum + b.initial_amount, 0);
+  // Aggregate stats — only deployed portfolios count toward Total Invested
+  const deployedPortfolioIds = new Set(
+    (portfolios || []).filter(p => p.status === 'deployed').map(p => p.id)
+  );
+  const deployedBuckets = allBuckets.filter(b => deployedPortfolioIds.has(b.portfolio_id));
+  const totalInvested = deployedBuckets.reduce((sum, b) => sum + b.initial_amount, 0);
   const avgTargetReturn =
     allBuckets.length > 0
       ? allBuckets.reduce((sum, b) => sum + b.target_return, 0) / allBuckets.length
@@ -81,7 +85,7 @@ export default async function DashboardPage() {
           {[
             {
               icon: DollarSign,
-              label: 'Total Invested',
+              label: 'Total Invested (Deployed)',
               value: `$${totalInvested.toLocaleString()}`,
               color: 'text-emerald-600',
               bg: 'bg-emerald-50',
