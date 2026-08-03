@@ -89,28 +89,99 @@ export async function POST(req: NextRequest, { params }: Params) {
   const inviterName   = user.email ?? 'Someone';
 
   if (resend) {
+    const roleLabel = role === 'editor' ? 'Editor' : 'Viewer';
+    const html = `<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 16px">
+    <tr><td align="center">
+      <table width="100%" cellpadding="0" cellspacing="0" style="max-width:520px">
+
+        <!-- Logo / Wordmark -->
+        <tr><td style="padding-bottom:24px;text-align:center">
+          <span style="font-size:22px;font-weight:800;color:#059669;letter-spacing:-0.5px">Yield</span><span style="font-size:22px;font-weight:800;color:#0f172a;letter-spacing:-0.5px">Nest</span>
+        </td></tr>
+
+        <!-- Main card -->
+        <tr><td style="background:#ffffff;border-radius:16px;border:1px solid #e2e8f0;overflow:hidden">
+
+          <!-- Green header bar -->
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr><td style="background:#059669;padding:28px 32px">
+              <p style="margin:0 0 4px;font-size:12px;font-weight:600;color:#a7f3d0;text-transform:uppercase;letter-spacing:1px">Collaboration Invite</p>
+              <h1 style="margin:0;font-size:22px;font-weight:700;color:#ffffff;line-height:1.3">
+                ${inviterName} invited you to collaborate
+              </h1>
+            </td></tr>
+          </table>
+
+          <!-- Body -->
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr><td style="padding:28px 32px">
+
+              <!-- Invite detail pill -->
+              <table cellpadding="0" cellspacing="0" style="margin-bottom:24px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px">
+                <tr><td style="padding:14px 18px">
+                  <p style="margin:0 0 4px;font-size:11px;font-weight:600;color:#16a34a;text-transform:uppercase;letter-spacing:0.5px">Bucket</p>
+                  <p style="margin:0;font-size:17px;font-weight:700;color:#0f172a">${bucketName}</p>
+                  ${portfolioName ? `<p style="margin:4px 0 0;font-size:13px;color:#64748b">in ${portfolioName}</p>` : ''}
+                  <p style="margin:8px 0 0;font-size:12px;color:#64748b">Your role: <span style="font-weight:600;color:#0f172a">${roleLabel}</span></p>
+                </td></tr>
+              </table>
+
+              <!-- CTA button -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px">
+                <tr><td align="center">
+                  <a href="${inviteUrl}" style="display:inline-block;padding:14px 32px;background:#059669;color:#ffffff;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px">
+                    Accept Invite →
+                  </a>
+                </td></tr>
+              </table>
+
+              <!-- Divider -->
+              <hr style="border:none;border-top:1px solid #f1f5f9;margin:0 0 24px">
+
+              <!-- What is YieldNest blurb -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;background:#f8fafc;border-radius:10px">
+                <tr><td style="padding:16px 18px">
+                  <p style="margin:0 0 6px;font-size:12px;font-weight:700;color:#0f172a;text-transform:uppercase;letter-spacing:0.5px">What is YieldNest?</p>
+                  <p style="margin:0;font-size:13px;color:#475569;line-height:1.6">
+                    YieldNest is a retirement portfolio builder that helps you design a bucket-strategy — splitting your investments into goal-based buckets (e.g. conservative income, moderate growth, long-term growth) each with its own target return and lifespan. You can run Monte Carlo stress tests, track real performance from your Schwab or Fidelity account, and now — collaborate with trusted people on your portfolio strategy.
+                  </p>
+                </td></tr>
+              </table>
+
+              <!-- Fine print -->
+              <p style="margin:0 0 8px;font-size:12px;color:#94a3b8;text-align:center">
+                This invite is for <strong>${email}</strong> only. Sign in with this email to accept.
+              </p>
+              <p style="margin:0;font-size:11px;color:#cbd5e1;text-align:center;word-break:break-all">
+                ${inviteUrl}
+              </p>
+
+            </td></tr>
+          </table>
+        </td></tr>
+
+        <!-- Footer -->
+        <tr><td style="padding:20px 0;text-align:center">
+          <p style="margin:0;font-size:11px;color:#94a3b8">
+            © ${new Date().getFullYear()} YieldNest · <a href="https://yieldnest.eazybudget.com" style="color:#94a3b8">yieldnest.eazybudget.com</a>
+          </p>
+        </td></tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`;
+
     await resend.emails.send({
       from:    'YieldNest <noreply@eazybudget.com>',
       to:      email,
-      subject: `${inviterName} invited you to collaborate on "${bucketName}"`,
-      html: `
-        <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;background:#fff;border-radius:16px;border:1px solid #e2e8f0">
-          <h2 style="margin:0 0 8px;font-size:20px;color:#0f172a">You've been invited to collaborate</h2>
-          ${portfolioName ? `<p style="margin:0 0 16px;color:#64748b;font-size:14px">Portfolio: <strong>${portfolioName}</strong></p>` : ''}
-          <p style="margin:0 0 20px;color:#334155;font-size:15px">
-            <strong>${inviterName}</strong> has invited you as a <strong>${role}</strong> on the bucket <strong>"${bucketName}"</strong>.
-          </p>
-          <a href="${inviteUrl}" style="display:inline-block;padding:12px 24px;background:#059669;color:#fff;border-radius:10px;text-decoration:none;font-weight:600;font-size:14px">
-            Accept Invite
-          </a>
-          <p style="margin:20px 0 0;color:#94a3b8;font-size:12px">
-            Or copy this link: ${inviteUrl}
-          </p>
-          <p style="margin:12px 0 0;color:#94a3b8;font-size:11px">
-            This invite is for ${email} only. You must sign in with this email to accept.
-          </p>
-        </div>
-      `,
+      subject: `${inviterName} invited you to collaborate on "${bucketName}" — YieldNest`,
+      html,
     }).catch(err => console.error('Resend error:', err));
   }
 
