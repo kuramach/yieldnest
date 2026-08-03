@@ -67,8 +67,7 @@ export default function PortfolioClient({ portfolioId, initialBuckets }: Props) 
   async function handleApplyPortfolio(portfolio: SuggestedPortfolio) {
     if (!builderBucketId) return;
 
-    // Add each holding
-    await Promise.all(
+    const results = await Promise.all(
       portfolio.holdings.map((h) =>
         fetch('/api/holdings', {
           method: 'POST',
@@ -82,7 +81,22 @@ export default function PortfolioClient({ portfolioId, initialBuckets }: Props) 
             quantity: 0,
             purchase_price: h.price,
           }),
+        }).then(async (res) => {
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || `Failed to save ${h.ticker}`);
+          }
+          return res.json();
         })
+      )
+    );
+
+    // Update local state immediately so UI reflects new holdings
+    setBuckets((prev) =>
+      prev.map((b) =>
+        b.id === builderBucketId
+          ? { ...b, holdings: [...b.holdings, ...results] }
+          : b
       )
     );
 
