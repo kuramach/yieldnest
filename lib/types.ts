@@ -1,3 +1,6 @@
+export type AccountType = 'taxable' | 'pretax' | 'roth';
+export type BucketGroup = 1 | 2 | 3;
+
 export interface Portfolio {
   id: number;
   user_id: string;
@@ -7,6 +10,8 @@ export interface Portfolio {
   is_public: boolean;
   imported_from_id?: number;
   status: 'draft' | 'deployed';
+  bucket_group?: BucketGroup | null;
+  account_type?: AccountType | null;
   created_at: string;
 }
 

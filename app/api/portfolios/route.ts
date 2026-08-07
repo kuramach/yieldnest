@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
-  const { name, description, linked_360r_scenario_id, is_public, imported_from_id } = body;
+  const { name, description, linked_360r_scenario_id, is_public, imported_from_id, bucket_group, account_type } = body;
 
   if (!name?.trim()) {
     return NextResponse.json({ error: 'Portfolio name is required' }, { status: 400 });
@@ -37,6 +37,8 @@ export async function POST(request: NextRequest) {
       linked_360r_scenario_id: linked_360r_scenario_id || null,
       is_public: is_public === true,
       imported_from_id: imported_from_id || null,
+      bucket_group: bucket_group ?? null,
+      account_type: account_type ?? null,
     })
     .select()
     .single();

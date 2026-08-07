@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Loader2, ChevronDown } from 'lucide-react';
+import type { BucketGroup, AccountType } from '@/lib/types';
 
 interface Scenario { id: number; name: string; is_baseline: number }
 
@@ -12,6 +13,8 @@ export default function NewPortfolioPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [scenarioId, setScenarioId] = useState('');
+  const [bucketGroup, setBucketGroup] = useState<BucketGroup | null>(null);
+  const [accountType, setAccountType] = useState<AccountType | null>(null);
   const [scenarios, setScenarios] = useState<Scenario[]>([]);
   const [loadingScenarios, setLoadingScenarios] = useState(true);
   const [loading, setLoading] = useState(false);
@@ -39,6 +42,8 @@ export default function NewPortfolioPage() {
           name: name.trim(),
           description: description.trim() || undefined,
           linked_360r_scenario_id: scenarioId ? parseInt(scenarioId) : undefined,
+          bucket_group: bucketGroup ?? undefined,
+          account_type: accountType ?? undefined,
         }),
       });
 
@@ -103,6 +108,62 @@ export default function NewPortfolioPage() {
               rows={3}
               className="w-full px-3 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 resize-none"
             />
+          </div>
+
+          {/* Bucket group */}
+          <div>
+            <label className="text-sm font-medium text-slate-700 mb-1.5 block">
+              Bucket Group <span className="text-slate-400 text-xs font-normal">(optional)</span>
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { value: 1 as BucketGroup, label: 'Bucket 1', sub: 'Safety / Short-term', color: 'border-blue-300 bg-blue-50 text-blue-700', ring: 'ring-blue-400' },
+                { value: 2 as BucketGroup, label: 'Bucket 2', sub: 'Income / Mid-term',   color: 'border-amber-300 bg-amber-50 text-amber-700', ring: 'ring-amber-400' },
+                { value: 3 as BucketGroup, label: 'Bucket 3', sub: 'Growth / Long-term',  color: 'border-emerald-300 bg-emerald-50 text-emerald-700', ring: 'ring-emerald-400' },
+              ] as const).map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setBucketGroup(bucketGroup === opt.value ? null : opt.value)}
+                  className={`border-2 rounded-xl p-3 text-left transition-all ${
+                    bucketGroup === opt.value
+                      ? `${opt.color} ring-2 ${opt.ring}`
+                      : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                  }`}
+                >
+                  <p className="text-sm font-bold">{opt.label}</p>
+                  <p className="text-[11px] mt-0.5 opacity-75">{opt.sub}</p>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Account type */}
+          <div>
+            <label className="text-sm font-medium text-slate-700 mb-1.5 block">
+              Account Type <span className="text-slate-400 text-xs font-normal">(optional)</span>
+            </label>
+            <div className="grid grid-cols-3 gap-2">
+              {([
+                { value: 'taxable' as AccountType, label: 'Taxable',  sub: 'Brokerage',         color: 'border-sky-300 bg-sky-50 text-sky-700',       ring: 'ring-sky-400' },
+                { value: 'pretax'  as AccountType, label: 'Pre-Tax',  sub: 'IRA / 401(k)',       color: 'border-orange-300 bg-orange-50 text-orange-700', ring: 'ring-orange-400' },
+                { value: 'roth'    as AccountType, label: 'Roth',     sub: 'Roth IRA / 401(k)',  color: 'border-violet-300 bg-violet-50 text-violet-700', ring: 'ring-violet-400' },
+              ] as const).map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setAccountType(accountType === opt.value ? null : opt.value)}
+                  className={`border-2 rounded-xl p-3 text-left transition-all ${
+                    accountType === opt.value
+                      ? `${opt.color} ring-2 ${opt.ring}`
+                      : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                  }`}
+                >
+                  <p className="text-sm font-bold">{opt.label}</p>
+                  <p className="text-[11px] mt-0.5 opacity-75">{opt.sub}</p>
+                </button>
+              ))}
+            </div>
           </div>
 
           <div>
