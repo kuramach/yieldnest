@@ -16,6 +16,27 @@ export async function GET() {
   return NextResponse.json(data);
 }
 
+export async function PATCH(request: NextRequest) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const body = await request.json();
+  const { id, bucket_group, account_type } = body;
+  if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+
+  const { data, error } = await supabase
+    .from('portfolios')
+    .update({ bucket_group: bucket_group ?? null, account_type: account_type ?? null })
+    .eq('id', id)
+    .eq('user_id', user.id)
+    .select()
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data);
+}
+
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();

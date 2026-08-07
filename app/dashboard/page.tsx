@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { Plus, TrendingUp, DollarSign, Target, Layers, Upload, Globe } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import type { Portfolio, Bucket, BucketGroup, AccountType } from '@/lib/types';
+import { InlineBucketTagger } from '@/components/InlineBucketTagger';
 
 interface PortfolioWithBuckets extends Portfolio {
   buckets: Bucket[];
@@ -21,7 +22,7 @@ const ACCOUNT_META: Record<AccountType, { label: string; badge: string }> = {
   roth:    { label: 'Roth',     badge: 'bg-violet-100 text-violet-700' },
 };
 
-function PortfolioCard({ portfolio }: { portfolio: PortfolioWithBuckets }) {
+function PortfolioCard({ portfolio, showTagger = false }: { portfolio: PortfolioWithBuckets; showTagger?: boolean }) {
   const avgReturn = portfolio.buckets.length > 0
     ? portfolio.buckets.reduce((s, b) => s + b.target_return, 0) / portfolio.buckets.length : 0;
   const totalAmount = portfolio.buckets.reduce((s, b) => s + b.initial_amount, 0);
@@ -82,6 +83,7 @@ function PortfolioCard({ portfolio }: { portfolio: PortfolioWithBuckets }) {
           </div>
         )}
       </div>
+      {showTagger && <InlineBucketTagger portfolioId={portfolio.id} />}
     </Link>
   );
 }
@@ -158,7 +160,7 @@ function BucketGroupView({ portfolios }: { portfolios: PortfolioWithBuckets[] })
             </span>
           </div>
           <div className="space-y-3">
-            {untagged.map(p => <PortfolioCard key={p.id} portfolio={p} />)}
+            {untagged.map(p => <PortfolioCard key={p.id} portfolio={p} showTagger />)}
           </div>
         </div>
       )}
