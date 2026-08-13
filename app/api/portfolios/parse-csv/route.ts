@@ -40,7 +40,9 @@ function detectBroker(headers: string[]): 'schwab' | 'fidelity' | 'unknown' {
 
 function col(row: string[], headers: string[], ...names: string[]): string {
   for (const n of names) {
-    const idx = headers.indexOf(n);
+    // exact match first, then substring match (handles "qty(quantity)", "mktval(marketvalue)", etc.)
+    let idx = headers.indexOf(n);
+    if (idx === -1) idx = headers.findIndex(h => h.includes(n));
     if (idx !== -1 && row[idx] !== undefined) return row[idx].replace(/[$,%]/g, '').trim();
   }
   return '';
