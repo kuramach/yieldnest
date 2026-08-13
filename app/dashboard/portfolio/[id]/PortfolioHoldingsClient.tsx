@@ -72,7 +72,7 @@ export default function PortfolioHoldingsClient({
   }, [initialHoldings]);
 
   // Check if any holding has cost basis data
-  const hasCostData = holdings.some(h => (h.cost_basis ?? 0) > 0 || (h.quantity ?? 0) > 0);
+  const hasCostData = holdings.some(h => (h.cost_basis ?? 0) > 0 || ((h.quantity ?? 0) > 0 && (h.price ?? 0) > 0));
 
   const totalCostBasis  = holdings.reduce((s, h) => s + (h.cost_basis ?? 0), 0);
   const totalMarketValue = holdings.reduce((s, h) => {
@@ -492,7 +492,15 @@ export default function PortfolioHoldingsClient({
       {showImport && (
         <SchwabImportModal
           portfolioId={portfolioId}
-          onSuccess={updatedHoldings => { setHoldings(updatedHoldings); setShowImport(false); }}
+          onSuccess={(updatedHoldings) => {
+            setHoldings(updatedHoldings);
+            const newW: Record<number, number> = {};
+            updatedHoldings.forEach(h => { newW[h.id] = Math.round((h.weight ?? 0) * 100); });
+            setWeights(newW);
+            setDirtyWeights(new Set());
+            setShowCostBasis(true);
+            setShowImport(false);
+          }}
           onClose={() => setShowImport(false)}
         />
       )}
