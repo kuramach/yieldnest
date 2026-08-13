@@ -216,6 +216,26 @@ export interface BucketWithHoldings extends Bucket {
   current_value?: number;
 }
 
+export interface PortfolioHolding {
+  id: number;
+  portfolio_id: number;
+  ticker: string;
+  name?: string;
+  asset_type: 'stock' | 'etf' | 'bond';
+  weight: number;      // 0 to 1
+  quantity: number;
+  purchase_price: number;
+  cost_basis?: number;
+  added_at: string;
+  // enriched client-side
+  year_return?: number;
+  price?: number;
+}
+
+export interface PortfolioWithHoldings extends Portfolio {
+  holdings: PortfolioHolding[];
+}
+
 export interface SuggestedPortfolio {
   holdings: {
     ticker: string;

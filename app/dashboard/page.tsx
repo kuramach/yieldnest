@@ -1,11 +1,11 @@
 import Link from 'next/link';
-import { Plus, TrendingUp, DollarSign, Target, Layers, Upload, Globe } from 'lucide-react';
+import { Plus, TrendingUp, Layers, Upload, Globe } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
-import type { Portfolio, Bucket, BucketGroup, AccountType } from '@/lib/types';
+import type { Portfolio, PortfolioHolding, BucketGroup, AccountType } from '@/lib/types';
 import { InlineBucketTagger } from '@/components/InlineBucketTagger';
 
-interface PortfolioWithBuckets extends Portfolio {
-  buckets: Bucket[];
+interface PortfolioWithHoldings extends Portfolio {
+  holdings: PortfolioHolding[];
 }
 
 // ─── Display helpers ──────────────────────────────────────────────────────────
@@ -22,10 +22,8 @@ const ACCOUNT_META: Record<AccountType, { label: string; badge: string }> = {
   roth:    { label: 'Roth',     badge: 'bg-violet-100 text-violet-700' },
 };
 
-function PortfolioCard({ portfolio, showTagger = false }: { portfolio: PortfolioWithBuckets; showTagger?: boolean }) {
-  const avgReturn = portfolio.buckets.length > 0
-    ? portfolio.buckets.reduce((s, b) => s + b.target_return, 0) / portfolio.buckets.length : 0;
-  const totalAmount = portfolio.buckets.reduce((s, b) => s + b.initial_amount, 0);
+function PortfolioCard({ portfolio, showTagger = false }: { portfolio: PortfolioWithHoldings; showTagger?: boolean }) {
+  const tickers = portfolio.holdings.slice(0, 4);
 
   return (
     <Link
@@ -53,32 +51,20 @@ function PortfolioCard({ portfolio, showTagger = false }: { portfolio: Portfolio
           {portfolio.description && (
             <p className="text-xs text-slate-400 mb-2 truncate">{portfolio.description}</p>
           )}
-          <div className="flex items-center gap-4 text-xs text-slate-500">
-            <span className="flex items-center gap-1">
-              <Layers className="w-3 h-3 text-slate-400" />
-              {portfolio.buckets.length} {portfolio.buckets.length === 1 ? 'bucket' : 'buckets'}
-            </span>
-            {totalAmount > 0 && (
-              <span className="flex items-center gap-1">
-                <DollarSign className="w-3 h-3 text-slate-400" />${totalAmount.toLocaleString()}
-              </span>
-            )}
-            {avgReturn > 0 && (
-              <span className="flex items-center gap-1">
-                <Target className="w-3 h-3 text-slate-400" />{(avgReturn * 100).toFixed(1)}% avg
-              </span>
-            )}
-          </div>
+          <p className="text-xs text-slate-500 flex items-center gap-1">
+            <Layers className="w-3 h-3 text-slate-400" />
+            {portfolio.holdings.length} {portfolio.holdings.length === 1 ? 'ticker' : 'tickers'}
+          </p>
         </div>
-        {portfolio.buckets.length > 0 && (
-          <div className="flex gap-1 shrink-0">
-            {portfolio.buckets.slice(0, 3).map((b) => (
-              <span key={b.id} className="text-xs font-semibold bg-emerald-100 text-emerald-700 px-2 py-1 rounded-lg">
-                {(b.target_return * 100).toFixed(0)}%
+        {tickers.length > 0 && (
+          <div className="flex gap-1 shrink-0 flex-wrap justify-end max-w-[140px]">
+            {tickers.map(h => (
+              <span key={h.id} className="font-mono text-[10px] font-bold bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded">
+                {h.ticker}
               </span>
             ))}
-            {portfolio.buckets.length > 3 && (
-              <span className="text-xs text-slate-400 px-2 py-1">+{portfolio.buckets.length - 3}</span>
+            {portfolio.holdings.length > 4 && (
+              <span className="text-[10px] text-slate-400 px-1 py-0.5">+{portfolio.holdings.length - 4}</span>
             )}
           </div>
         )}
@@ -88,9 +74,9 @@ function PortfolioCard({ portfolio, showTagger = false }: { portfolio: Portfolio
   );
 }
 
-function BucketGroupView({ portfolios }: { portfolios: PortfolioWithBuckets[] }) {
-  const grouped: Record<BucketGroup, PortfolioWithBuckets[]> = { 1: [], 2: [], 3: [] };
-  const untagged: PortfolioWithBuckets[] = [];
+function BucketGroupView({ portfolios }: { portfolios: PortfolioWithHoldings[] }) {
+  const grouped: Record<BucketGroup, PortfolioWithHoldings[]> = { 1: [], 2: [], 3: [] };
+  const untagged: PortfolioWithHoldings[] = [];
 
   for (const p of portfolios) {
     if (p.bucket_group === 1 || p.bucket_group === 2 || p.bucket_group === 3) {
@@ -128,7 +114,6 @@ function BucketGroupView({ portfolios }: { portfolios: PortfolioWithBuckets[] })
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-3">
-                {/* Group by account type within the bucket */}
                 {(['taxable', 'pretax', 'roth'] as AccountType[]).map(at => {
                   const atList = list.filter(p => p.account_type === at);
                   if (atList.length === 0) return null;
@@ -143,7 +128,6 @@ function BucketGroupView({ portfolios }: { portfolios: PortfolioWithBuckets[] })
                     </div>
                   );
                 })}
-                {/* Untagged account type within this bucket */}
                 {list.filter(p => !p.account_type).map(p => <PortfolioCard key={p.id} portfolio={p} />)}
               </div>
             )}
@@ -178,32 +162,23 @@ export default async function DashboardPage() {
     .eq('user_id', user!.id)
     .order('created_at', { ascending: false });
 
-  // Fetch buckets for all portfolios
-  let allBuckets: Bucket[] = [];
+  let allHoldings: PortfolioHolding[] = [];
   if (portfolios && portfolios.length > 0) {
-    const pIds = portfolios.map((p) => p.id);
-    const { data: buckets } = await supabase
-      .from('buckets')
+    const pIds = portfolios.map(p => p.id);
+    const { data: holdings } = await supabase
+      .from('portfolio_holdings')
       .select('*')
       .in('portfolio_id', pIds);
-    allBuckets = buckets || [];
+    allHoldings = (holdings || []) as PortfolioHolding[];
   }
 
-  const portfoliosWithBuckets: PortfolioWithBuckets[] = (portfolios || []).map((p) => ({
+  const portfoliosWithHoldings: PortfolioWithHoldings[] = (portfolios || []).map(p => ({
     ...p,
-    buckets: allBuckets.filter((b) => b.portfolio_id === p.id),
+    holdings: allHoldings.filter(h => h.portfolio_id === p.id),
   }));
 
-  // Aggregate stats — only deployed portfolios count toward Total Invested
-  const deployedPortfolioIds = new Set(
-    (portfolios || []).filter(p => p.status === 'deployed').map(p => p.id)
-  );
-  const deployedBuckets = allBuckets.filter(b => deployedPortfolioIds.has(b.portfolio_id));
-  const totalInvested = deployedBuckets.reduce((sum, b) => sum + b.initial_amount, 0);
-  const avgTargetReturn =
-    allBuckets.length > 0
-      ? allBuckets.reduce((sum, b) => sum + b.target_return, 0) / allBuckets.length
-      : 0;
+  const totalTickers = allHoldings.length;
+  const deployedCount = (portfolios || []).filter(p => p.status === 'deployed').length;
 
   return (
     <div className="p-8 max-w-5xl">
@@ -241,30 +216,12 @@ export default async function DashboardPage() {
       </div>
 
       {/* Stats */}
-      {allBuckets.length > 0 && (
+      {portfoliosWithHoldings.length > 0 && (
         <div className="grid grid-cols-3 gap-4 mb-8">
           {[
-            {
-              icon: DollarSign,
-              label: 'Total Invested (Deployed)',
-              value: `$${totalInvested.toLocaleString()}`,
-              color: 'text-emerald-600',
-              bg: 'bg-emerald-50',
-            },
-            {
-              icon: Target,
-              label: 'Avg Target Return',
-              value: `${(avgTargetReturn * 100).toFixed(1)}%`,
-              color: 'text-blue-600',
-              bg: 'bg-blue-50',
-            },
-            {
-              icon: Layers,
-              label: 'Total Buckets',
-              value: allBuckets.length.toString(),
-              color: 'text-violet-600',
-              bg: 'bg-violet-50',
-            },
+            { icon: Layers,     label: 'Total Portfolios',      value: portfoliosWithHoldings.length.toString(), color: 'text-emerald-600', bg: 'bg-emerald-50' },
+            { icon: TrendingUp, label: 'Total Tickers',         value: totalTickers.toString(),                  color: 'text-blue-600',    bg: 'bg-blue-50' },
+            { icon: Plus,       label: 'Deployed Portfolios',   value: deployedCount.toString(),                 color: 'text-violet-600',  bg: 'bg-violet-50' },
           ].map(({ icon: Icon, label, value, color, bg }) => (
             <div key={label} className="bg-white border border-slate-100 rounded-2xl p-5">
               <div className={`w-9 h-9 ${bg} rounded-lg flex items-center justify-center mb-3`}>
@@ -278,14 +235,14 @@ export default async function DashboardPage() {
       )}
 
       {/* Portfolio list or empty state */}
-      {portfoliosWithBuckets.length === 0 ? (
+      {portfoliosWithHoldings.length === 0 ? (
         <div className="text-center py-20 border-2 border-dashed border-slate-200 rounded-2xl">
           <div className="w-14 h-14 bg-emerald-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <TrendingUp className="w-7 h-7 text-emerald-600" />
           </div>
           <h2 className="text-lg font-bold text-slate-800 mb-2">Create your first portfolio</h2>
           <p className="text-sm text-slate-500 max-w-sm mx-auto mb-6">
-            A portfolio holds your retirement buckets — each targeting a specific annual return over a defined horizon.
+            Name it, tag it with a bucket label (Safety / Income / Growth), then add tickers — all in one place.
           </p>
           <Link
             href="/dashboard/portfolio/new"
@@ -296,7 +253,7 @@ export default async function DashboardPage() {
           </Link>
         </div>
       ) : (
-        <BucketGroupView portfolios={portfoliosWithBuckets} />
+        <BucketGroupView portfolios={portfoliosWithHoldings} />
       )}
     </div>
   );

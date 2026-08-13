@@ -73,7 +73,7 @@ export default function NewPortfolioPage() {
       </Link>
 
       <h1 className="text-2xl font-bold text-slate-900 mb-1">Create Portfolio</h1>
-      <p className="text-sm text-slate-400 mb-8">A portfolio holds multiple return-targeted buckets.</p>
+      <p className="text-sm text-slate-400 mb-8">Name your portfolio, tag it with a bucket label, then add tickers.</p>
 
       <div className="bg-white border border-slate-200 rounded-2xl p-8">
         {error && (

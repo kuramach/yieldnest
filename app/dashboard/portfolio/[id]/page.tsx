@@ -1,12 +1,22 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, ExternalLink, TrendingUp, Brain } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
-import type { BucketWithHoldings } from '@/lib/types';
-import PortfolioClient from './PortfolioClient';
-import PortfolioAnalysisPanel from '@/components/PortfolioAnalysisPanel';
+import PortfolioHoldingsClient from './PortfolioHoldingsClient';
 
 type Props = { params: Promise<{ id: string }> };
+
+const BUCKET_LABEL: Record<number, { label: string; color: string }> = {
+  1: { label: 'Bucket 1 — Safety',  color: 'bg-blue-100 text-blue-700' },
+  2: { label: 'Bucket 2 — Income',  color: 'bg-amber-100 text-amber-700' },
+  3: { label: 'Bucket 3 — Growth',  color: 'bg-emerald-100 text-emerald-700' },
+};
+
+const ACCOUNT_LABEL: Record<string, { label: string; color: string }> = {
+  taxable: { label: 'Taxable',  color: 'bg-sky-100 text-sky-700' },
+  pretax:  { label: 'Pre-Tax',  color: 'bg-orange-100 text-orange-700' },
+  roth:    { label: 'Roth',     color: 'bg-violet-100 text-violet-700' },
+};
 
 export default async function PortfolioPage({ params }: Props) {
   const { id } = await params;
@@ -25,99 +35,59 @@ export default async function PortfolioPage({ params }: Props) {
 
   if (!portfolio) notFound();
 
-  const { data: buckets } = await supabase
-    .from('buckets')
+  const { data: holdings } = await supabase
+    .from('portfolio_holdings')
     .select('*')
     .eq('portfolio_id', portfolioId)
-    .order('order_index', { ascending: true });
+    .order('added_at', { ascending: true });
 
-  const bucketIds = (buckets || []).map((b) => b.id);
-  let holdingsMap: Record<number, BucketWithHoldings['holdings']> = {};
-
-  if (bucketIds.length > 0) {
-    const { data: holdings } = await supabase
-      .from('bucket_holdings')
-      .select('*')
-      .in('bucket_id', bucketIds)
-      .order('added_at', { ascending: true });
-
-    holdingsMap = (holdings || []).reduce((acc, h) => {
-      if (!acc[h.bucket_id]) acc[h.bucket_id] = [];
-      acc[h.bucket_id].push(h);
-      return acc;
-    }, {} as Record<number, BucketWithHoldings['holdings']>);
-  }
-
-  const bucketsWithHoldings: BucketWithHoldings[] = (buckets || []).map((b) => ({
-    ...b,
-    holdings: holdingsMap[b.id] || [],
-  }));
-
-  // Aggregate stats
-  const totalInvested = bucketsWithHoldings.reduce((s, b) => s + b.initial_amount, 0);
+  const bucketMeta = portfolio.bucket_group ? BUCKET_LABEL[portfolio.bucket_group] : null;
+  const accountMeta = portfolio.account_type ? ACCOUNT_LABEL[portfolio.account_type] : null;
 
   return (
-    <div className="p-8 max-w-5xl">
-      {/* Header */}
-      <div className="mb-6">
-        <Link
-          href="/dashboard"
-          className="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-700 mb-4 transition-colors w-fit"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Dashboard
-        </Link>
+    <div className="p-8 max-w-4xl">
+      <Link
+        href="/dashboard"
+        className="flex items-center gap-2 text-sm text-slate-400 hover:text-slate-700 mb-6 transition-colors w-fit"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        Back to Dashboard
+      </Link>
 
-        <div className="flex items-start justify-between">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold text-slate-900">{portfolio.name}</h1>
-              {portfolio.linked_360r_scenario_id && (
-                <a
-                  href={`https://360r.eazybudget.com`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full hover:bg-blue-200 transition-colors"
-                >
-                  360R #{portfolio.linked_360r_scenario_id}
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              )}
-            </div>
-            {portfolio.description && (
-              <p className="text-sm text-slate-500 mt-1">{portfolio.description}</p>
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <h1 className="text-2xl font-bold text-slate-900">{portfolio.name}</h1>
+            {bucketMeta && (
+              <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${bucketMeta.color}`}>
+                {bucketMeta.label}
+              </span>
+            )}
+            {accountMeta && (
+              <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${accountMeta.color}`}>
+                {accountMeta.label}
+              </span>
+            )}
+            {portfolio.linked_360r_scenario_id && (
+              <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full">
+                360R #{portfolio.linked_360r_scenario_id}
+              </span>
             )}
           </div>
-
-          <div className="flex items-start gap-3">
-            <Link href={`#ai-analysis`}
-              className="flex items-center gap-2 px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white text-sm font-semibold rounded-xl transition-colors">
-              <Brain className="w-4 h-4" />
-              Analyse &amp; Rebalance
-            </Link>
-            <Link href={`/dashboard/portfolio/${portfolioId}/monte-carlo`}
-              className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-semibold rounded-xl transition-colors">
-              <TrendingUp className="w-4 h-4" />
-              Monte Carlo
-            </Link>
-            <div className="text-right">
-              <p className="text-2xl font-bold text-slate-900">
-                ${totalInvested.toLocaleString()}
-              </p>
-              <p className="text-xs text-slate-400">total invested</p>
-            </div>
-          </div>
+          {portfolio.description && (
+            <p className="text-sm text-slate-500">{portfolio.description}</p>
+          )}
         </div>
       </div>
 
-      <PortfolioClient
+      <PortfolioHoldingsClient
         portfolioId={portfolioId}
-        initialBuckets={bucketsWithHoldings}
+        initialHoldings={holdings || []}
         initialStatus={portfolio.status ?? 'draft'}
-        linked360rScenarioId={portfolio.linked_360r_scenario_id ?? undefined}
+        bucketGroup={portfolio.bucket_group ?? null}
+        accountType={portfolio.account_type ?? null}
+        linked360rScenarioId={portfolio.linked_360r_scenario_id ?? null}
       />
-
-      <PortfolioAnalysisPanel portfolioId={portfolioId} />
     </div>
   );
 }
