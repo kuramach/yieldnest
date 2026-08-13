@@ -129,7 +129,13 @@ export async function POST(req: NextRequest) {
 
   if (!parsed.length) return NextResponse.json({
     error: 'No valid rows found in CSV',
-    debug: { broker, headers: header.headers.slice(0, 10), rows_scanned: rows.length - header.idx - 1 },
+    debug: {
+      broker,
+      header_idx: header.idx,
+      headers: header.headers,
+      total_rows: rows.length,
+      rows_after_header: rows.slice(header.idx + 1, header.idx + 6).map(r => r.slice(0, 6)),
+    },
   }, { status: 422 });
 
   const totalMarketValue = parsed.reduce((s, r) => s + r.market_value, 0);
