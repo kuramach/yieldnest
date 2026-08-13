@@ -189,27 +189,43 @@ export async function POST(req: NextRequest, { params }: Params) {
     }
   }
 
+  // Compute weights from market values in the CSV
+  const totalMarketValue = parsed.reduce((s, r) => s + r.market_value, 0);
+  const withWeights = parsed.map(row => ({
+    ...row,
+    weight: totalMarketValue > 0 ? row.market_value / totalMarketValue : 0,
+  }));
+
   if (preview) {
     return NextResponse.json({
       broker,
       total_rows: parsed.length,
-      matched: matched.filter(m => !m.is_new),
-      new_tickers: newTickers.map(r => ({ ticker: r.ticker, name: r.name, quantity: r.quantity, cost_basis: r.cost_basis, market_value: r.market_value })),
+      total_market_value: totalMarketValue,
+      matched: matched.filter(m => !m.is_new).map(m => ({
+        ...m,
+        weight: totalMarketValue > 0 ? m.market_value / totalMarketValue : 0,
+      })),
+      new_tickers: newTickers.map(r => ({
+        ticker: r.ticker, name: r.name, quantity: r.quantity,
+        cost_basis: r.cost_basis, market_value: r.market_value,
+        weight: totalMarketValue > 0 ? r.market_value / totalMarketValue : 0,
+      })),
     });
   }
 
-  // Confirm: upsert all rows into portfolio_holdings
+  // Confirm: upsert all rows with computed weights
   const now = new Date().toISOString();
-  await Promise.all(parsed.map(row =>
+  await Promise.all(withWeights.map(row =>
     supabase.from('portfolio_holdings').upsert({
       portfolio_id: portfolioId,
       ticker: row.ticker,
       name: row.name || null,
       asset_type: row.asset_type,
       quantity: row.quantity,
+      price: row.price,
       purchase_price: row.quantity > 0 ? row.cost_basis / row.quantity : 0,
       cost_basis: row.cost_basis,
-      weight: 0, // weight stays as-is; user manages separately
+      weight: row.weight,
     }, { onConflict: 'portfolio_id,ticker' })
       .eq('portfolio_id', portfolioId)
   ));

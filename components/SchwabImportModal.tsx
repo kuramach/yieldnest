@@ -10,6 +10,7 @@ interface MatchedRow {
   quantity: number;
   cost_basis: number;
   market_value: number;
+  weight: number;
   holding_id: number;
   is_new: boolean;
 }
@@ -20,11 +21,13 @@ interface NewRow {
   quantity: number;
   cost_basis: number;
   market_value: number;
+  weight: number;
 }
 
 interface PreviewResult {
   broker: 'schwab' | 'fidelity' | 'unknown';
   total_rows: number;
+  total_market_value: number;
   matched: MatchedRow[];
   new_tickers: NewRow[];
 }
@@ -213,10 +216,13 @@ export default function SchwabImportModal({ portfolioId, onSuccess, onClose }: P
         {/* Step 2 — Preview */}
         {step === 'preview' && preview && (
           <div className="px-6 py-5 space-y-4">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs text-slate-500">Detected:</span>
               <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${BROKER_BADGE[preview.broker]}`}>{BROKER_LABEL[preview.broker]}</span>
-              <span className="text-xs text-slate-400 ml-auto">{preview.total_rows} positions found</span>
+              <span className="text-xs text-slate-400">{preview.total_rows} positions</span>
+              {preview.total_market_value > 0 && (
+                <span className="ml-auto text-xs font-semibold text-slate-700">Total: {fmt(preview.total_market_value)}</span>
+              )}
             </div>
 
             {/* Matched existing */}
@@ -232,7 +238,8 @@ export default function SchwabImportModal({ portfolioId, onSuccess, onClose }: P
                         <th className="text-left px-4 py-2 font-medium">Ticker</th>
                         <th className="text-right px-4 py-2 font-medium">Qty</th>
                         <th className="text-right px-4 py-2 font-medium">Cost Basis</th>
-                        <th className="text-right px-4 py-2 font-medium">Market Value</th>
+                        <th className="text-right px-4 py-2 font-medium">Mkt Value</th>
+                        <th className="text-right px-4 py-2 font-medium">Weight</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -242,6 +249,7 @@ export default function SchwabImportModal({ portfolioId, onSuccess, onClose }: P
                           <td className="px-4 py-2 text-right tabular-nums">{m.quantity.toLocaleString()}</td>
                           <td className="px-4 py-2 text-right tabular-nums">{m.cost_basis > 0 ? fmt(m.cost_basis) : '—'}</td>
                           <td className="px-4 py-2 text-right tabular-nums text-emerald-700 font-semibold">{m.market_value > 0 ? fmt(m.market_value) : '—'}</td>
+                          <td className="px-4 py-2 text-right tabular-nums font-semibold text-slate-700">{(m.weight * 100).toFixed(1)}%</td>
                         </tr>
                       ))}
                     </tbody>
@@ -265,17 +273,19 @@ export default function SchwabImportModal({ portfolioId, onSuccess, onClose }: P
                         <th className="text-left px-4 py-2 font-medium">Name</th>
                         <th className="text-right px-4 py-2 font-medium">Qty</th>
                         <th className="text-right px-4 py-2 font-medium">Cost Basis</th>
-                        <th className="text-right px-4 py-2 font-medium">Market Value</th>
+                        <th className="text-right px-4 py-2 font-medium">Mkt Value</th>
+                        <th className="text-right px-4 py-2 font-medium">Weight</th>
                       </tr>
                     </thead>
                     <tbody>
                       {preview.new_tickers.map(r => (
                         <tr key={r.ticker} className="border-b border-emerald-50 last:border-0">
                           <td className="px-4 py-2"><span className="font-mono font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">{r.ticker}</span></td>
-                          <td className="px-4 py-2 text-slate-600 truncate max-w-[140px]">{r.name || '—'}</td>
+                          <td className="px-4 py-2 text-slate-600 truncate max-w-[120px]">{r.name || '—'}</td>
                           <td className="px-4 py-2 text-right tabular-nums">{r.quantity.toLocaleString()}</td>
                           <td className="px-4 py-2 text-right tabular-nums">{r.cost_basis > 0 ? fmt(r.cost_basis) : '—'}</td>
                           <td className="px-4 py-2 text-right tabular-nums text-emerald-700 font-semibold">{r.market_value > 0 ? fmt(r.market_value) : '—'}</td>
+                          <td className="px-4 py-2 text-right tabular-nums font-semibold text-slate-700">{(r.weight * 100).toFixed(1)}%</td>
                         </tr>
                       ))}
                     </tbody>
