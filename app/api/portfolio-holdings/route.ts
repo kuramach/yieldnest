@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json();
-  const { portfolio_id, ticker, name, asset_type, weight } = body;
+  const { portfolio_id, ticker, name, asset_type, weight, quantity, purchase_price, cost_basis, price } = body;
 
   if (!portfolio_id || !ticker) {
     return NextResponse.json({ error: 'portfolio_id and ticker are required' }, { status: 400 });
@@ -57,6 +57,10 @@ export async function POST(request: NextRequest) {
       name: name || null,
       asset_type: asset_type || 'etf',
       weight: weight ?? 0,
+      quantity: quantity ?? 0,
+      purchase_price: purchase_price ?? 0,
+      cost_basis: cost_basis ?? null,
+      price: price ?? 0,
     }, { onConflict: 'portfolio_id,ticker' })
     .select()
     .single();

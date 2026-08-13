@@ -7,7 +7,20 @@ import {
   TrendingUp, TrendingDown, AlertCircle, Loader2, DollarSign,
   BarChart3, Minus, RotateCcw, SlidersHorizontal, Brain, Equal,
 } from 'lucide-react';
-import type { ImportedHolding, HoldingHistoricalStats, PortfolioAnalysis, OptimizationResult } from '@/lib/types';
+import type { HoldingHistoricalStats, PortfolioAnalysis, OptimizationResult, BucketGroup, AccountType } from '@/lib/types';
+
+interface ParsedCsvHolding {
+  ticker: string;
+  name: string;
+  quantity: number;
+  price: number;
+  market_value: number;
+  cost_basis: number;
+  gain_loss: number;
+  gain_loss_pct: number;
+  asset_type: 'stock' | 'etf' | 'bond';
+  weight: number;
+}
 
 type Step = 'upload' | 'preview' | 'analyze' | 'optimize' | 'save';
 const STEPS: Step[] = ['upload', 'preview', 'analyze', 'optimize', 'save'];
@@ -19,27 +32,6 @@ const STEP_LABELS: Record<Step, string> = {
   save: 'Save',
 };
 
-const ANALYST_LABELS: Record<string, { label: string; color: string }> = {
-  strongBuy:  { label: 'Strong Buy',  color: 'bg-emerald-100 text-emerald-800' },
-  buy:        { label: 'Buy',         color: 'bg-green-100 text-green-700' },
-  hold:       { label: 'Hold',        color: 'bg-amber-100 text-amber-700' },
-  sell:       { label: 'Sell',        color: 'bg-orange-100 text-orange-700' },
-  strongSell: { label: 'Strong Sell', color: 'bg-rose-100 text-rose-700' },
-};
-
-function StarRating({ stars }: { stars?: number }) {
-  if (!stars) return null;
-  return (
-    <span className="inline-flex gap-0.5" title={`Morningstar ${stars}/5`}>
-      {[1,2,3,4,5].map(i => (
-        <svg key={i} className={`w-3 h-3 ${i <= stars ? 'text-amber-400' : 'text-slate-200'}`} fill="currentColor" viewBox="0 0 20 20">
-          <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-        </svg>
-      ))}
-    </span>
-  );
-}
-
 function pct(n: number | undefined, digits = 1) {
   if (n == null) return '—';
   return (n >= 0 ? '+' : '') + (n * 100).toFixed(digits) + '%';
@@ -47,6 +39,9 @@ function pct(n: number | undefined, digits = 1) {
 function fmtUsd(n: number | undefined | null) {
   if (!n) return '—';
   return '$' + n.toLocaleString(undefined, { maximumFractionDigits: 0 });
+}
+function fmtUsdExact(n: number) {
+  return '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function StepBar({ current }: { current: Step }) {
@@ -71,15 +66,13 @@ function StepBar({ current }: { current: Step }) {
   );
 }
 
-function ReturnBadge({ value, label }: { value: number; label: string }) {
-  const positive = value >= 0;
-  return (
-    <div className={`text-center px-2 py-1.5 rounded-lg ${positive ? 'bg-emerald-50' : 'bg-rose-50'}`}>
-      <p className={`text-xs font-bold ${positive ? 'text-emerald-700' : 'text-rose-600'}`}>{pct(value)}</p>
-      <p className="text-[9px] text-slate-400 mt-0.5">{label}</p>
-    </div>
-  );
-}
+const BUCKET_LABELS: Record<BucketGroup, string> = { 1: 'Bucket 1 · Safety', 2: 'Bucket 2 · Income', 3: 'Bucket 3 · Growth' };
+const BUCKET_COLORS: Record<BucketGroup, string> = {
+  1: 'border-blue-500 bg-blue-50 text-blue-800',
+  2: 'border-amber-500 bg-amber-50 text-amber-800',
+  3: 'border-emerald-500 bg-emerald-50 text-emerald-800',
+};
+const ACCOUNT_LABELS: Record<AccountType, string> = { taxable: 'Taxable', pretax: 'Pre-Tax (401k/IRA)', roth: 'Roth' };
 
 export default function ImportPage() {
   const router = useRouter();
@@ -93,19 +86,19 @@ export default function ImportPage() {
   const [error, setError] = useState('');
 
   const [fileName, setFileName] = useState('');
-  const [holdings, setHoldings] = useState<ImportedHolding[]>([]);
+  const [broker, setBroker] = useState('');
+  const [totalMarketValue, setTotalMarketValue] = useState(0);
+  const [holdings, setHoldings] = useState<ParsedCsvHolding[]>([]);
   const [analysis, setAnalysis] = useState<PortfolioAnalysis | null>(null);
   const [optimized, setOptimized] = useState<OptimizationResult[]>([]);
-  const [weightedReturn, setWeightedReturn] = useState(0);
-  const [totalAllocated, setTotalAllocated] = useState(0);
-  // editedWeights: ticker → weight (0–100 as percentage string for input)
+
+  // weight editing: ticker → pct string (shown in table inputs)
+  const [previewWeights, setPreviewWeights] = useState<Record<string, string>>({});
   const [editedWeights, setEditedWeights] = useState<Record<string, string>>({});
 
   const [targetReturn, setTargetReturn] = useState(0.07);
   const [availableCash, setAvailableCash] = useState('');
   const [lifespanYears, setLifespanYears] = useState(10);
-  // Step-2 weight editing (ticker → pct string)
-  const [previewWeights, setPreviewWeights] = useState<Record<string, string>>({});
   const [suggestingWeights, setSuggestingWeights] = useState(false);
   const [weightRationale, setWeightRationale] = useState('');
 
@@ -113,6 +106,8 @@ export default function ImportPage() {
   const [portfolioName, setPortfolioName] = useState('');
   const [description, setDescription] = useState('');
   const [isPublic, setIsPublic] = useState(false);
+  const [bucketGroup, setBucketGroup] = useState<BucketGroup | null>(null);
+  const [accountType, setAccountType] = useState<AccountType>('taxable');
 
   async function handleFileUpload(file: File) {
     setError('');
@@ -121,15 +116,17 @@ export default function ImportPage() {
     const fd = new FormData();
     fd.append('file', file);
     try {
-      const res = await fetch('/api/portfolios/import', { method: 'POST', body: fd });
+      const res = await fetch('/api/portfolios/parse-csv', { method: 'POST', body: fd });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Upload failed');
       setHoldings(json.holdings);
+      setBroker(json.broker);
+      setTotalMarketValue(json.total_market_value);
       setPortfolioName(file.name.replace(/\.[^.]+$/, ''));
-      // Initialize equal weights for preview step
-      const eq: Record<string, string> = {};
-      for (const h of json.holdings) eq[h.ticker] = (100 / json.holdings.length).toFixed(1);
-      setPreviewWeights(eq);
+      // Initialize weights from market values (not equal)
+      const wts: Record<string, string> = {};
+      for (const h of json.holdings) wts[h.ticker] = (h.weight * 100).toFixed(1);
+      setPreviewWeights(wts);
       setStep('preview');
     } catch (e: any) {
       setError(e.message);
@@ -148,7 +145,7 @@ export default function ImportPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          holdings,
+          holdings: holdings.map(h => ({ ticker: h.ticker, name: h.name, asset_type: h.asset_type })),
           target_return: targetReturn,
           available_cash: cash,
           lifespan_years: lifespanYears,
@@ -157,10 +154,7 @@ export default function ImportPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Suggestion failed');
       const next: Record<string, string> = {};
-      for (const h of holdings) {
-        const w = json.weights[h.ticker] ?? 0;
-        next[h.ticker] = (w * 100).toFixed(1);
-      }
+      for (const h of holdings) next[h.ticker] = ((json.weights[h.ticker] ?? 0) * 100).toFixed(1);
       setPreviewWeights(next);
       setWeightRationale(json.rationale ?? '');
     } catch (e: any) {
@@ -178,7 +172,11 @@ export default function ImportPage() {
       const res = await fetch('/api/portfolios/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ holdings, target_return: targetReturn, available_cash: cash }),
+        body: JSON.stringify({
+          holdings: holdings.map(h => ({ ticker: h.ticker, name: h.name, asset_type: h.asset_type })),
+          target_return: targetReturn,
+          available_cash: cash,
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Analysis failed');
@@ -200,7 +198,7 @@ export default function ImportPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          holdings,
+          holdings: holdings.map(h => ({ ticker: h.ticker, name: h.name, asset_type: h.asset_type })),
           historical_stats: analysis?.stats ?? [],
           target_return: targetReturn,
           available_cash: cash,
@@ -209,9 +207,6 @@ export default function ImportPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Optimization failed');
       setOptimized(json.optimized);
-      setWeightedReturn(json.weighted_return);
-      setTotalAllocated(json.total_allocated);
-      // seed editable weights from AI result
       const initial: Record<string, string> = {};
       for (const h of json.optimized) initial[h.ticker] = (h.weight * 100).toFixed(1);
       setEditedWeights(initial);
@@ -228,74 +223,51 @@ export default function ImportPage() {
     setSaving(true);
     setError('');
     try {
+      // Create portfolio
       const pRes = await fetch('/api/portfolios', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: portfolioName.trim(), description: description.trim() || null, is_public: isPublic }),
+        body: JSON.stringify({
+          name: portfolioName.trim(),
+          description: description.trim() || null,
+          is_public: isPublic,
+          bucket_group: bucketGroup,
+          account_type: accountType,
+        }),
       });
       const portfolio = await pRes.json();
       if (!pRes.ok) throw new Error(portfolio.error);
 
-      const cash = parseFloat(availableCash.replace(/,/g, '')) || 0;
-      const bRes = await fetch('/api/buckets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          portfolio_id: portfolio.id,
-          name: 'Imported Holdings',
-          target_return: targetReturn,
-          lifespan_years: lifespanYears,
-          initial_amount: cash || holdings.reduce((s, h) => s + (h.value ?? 0), 0),
-        }),
-      });
-      const bucket = await bRes.json();
-      if (!bRes.ok) throw new Error(bucket.error);
+      // Determine final weights to use (AI-optimized if available, else preview weights)
+      const useOptimized = liveRows.length > 0;
+      const totalPreviewPct = Object.values(previewWeights).reduce((s, v) => s + (parseFloat(v) || 0), 0);
 
-      const previewTotal = Object.values(previewWeights).reduce((s, v) => s + (parseFloat(v) || 0), 0);
-      const source = liveRows.length > 0 ? liveRows : holdings.map(h => {
-        const pct = parseFloat(previewWeights[h.ticker] ?? '0') || 0;
-        const w = previewTotal > 0 ? pct / previewTotal : 1 / holdings.length;
-        const cash2 = parseFloat(availableCash.replace(/,/g, '')) || 0;
-        const dollar = cash2 > 0 ? cash2 * w : 0;
-        return {
-          ticker: h.ticker, name: h.name || h.ticker,
-          weight: w, cagr: h.year_return ?? 0, year_return: h.year_return ?? 0,
-          asset_type: h.asset_type ?? 'stock' as const,
-          price: h.price ?? 0,
-          dollar_amount: dollar,
-          shares_to_buy: h.price && h.price > 0 && dollar > 0 ? Math.floor(dollar / h.price) : 0,
-        };
-      });
-
-      await Promise.all(source.map(h =>
-        fetch('/api/holdings', {
+      // Save each holding to portfolio_holdings
+      await Promise.all(holdings.map(h => {
+        let weight: number;
+        if (useOptimized) {
+          const optRow = liveRows.find(r => r.ticker === h.ticker);
+          weight = optRow?.weight ?? 0;
+        } else {
+          const rawPct = parseFloat(previewWeights[h.ticker] ?? '0') || 0;
+          weight = totalPreviewPct > 0 ? rawPct / totalPreviewPct : 1 / holdings.length;
+        }
+        return fetch('/api/portfolio-holdings', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            bucket_id: bucket.id, ticker: h.ticker, name: h.name,
-            asset_type: h.asset_type, weight: h.weight,
-            quantity: h.shares_to_buy || holdings.find(ih => ih.ticker === h.ticker)?.shares || 0,
-            purchase_price: h.price,
+            portfolio_id: portfolio.id,
+            ticker: h.ticker,
+            name: h.name || null,
+            asset_type: h.asset_type,
+            weight,
+            quantity: h.quantity,
+            purchase_price: h.quantity > 0 ? h.cost_basis / h.quantity : h.price,
+            cost_basis: h.cost_basis,
+            price: h.price,
           }),
-        })
-      ));
-
-      // Persist analysis snapshot if available
-      if (analysis) {
-        await fetch(`/api/portfolios/${portfolio.id}/analyses`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            stats: analysis.stats,
-            ai_narrative: analysis.ai_narrative,
-            target_return: targetReturn,
-            available_cash: cash,
-            portfolio_best: analysis.portfolio_best,
-            portfolio_worst: analysis.portfolio_worst,
-            portfolio_median: analysis.portfolio_median,
-          }),
-        }).catch(() => {}); // non-fatal
-      }
+        });
+      }));
 
       router.push(`/dashboard/portfolio/${portfolio.id}`);
     } catch (e: any) {
@@ -305,10 +277,8 @@ export default function ImportPage() {
     }
   }
 
-  const statsMap = Object.fromEntries((analysis?.stats ?? []).map(s => [s.ticker, s]));
   const cash = parseFloat(availableCash.replace(/,/g, '')) || 0;
 
-  // Derive live values from editedWeights
   const liveRows = useMemo(() => {
     const totalPct = Object.values(editedWeights).reduce((s, v) => s + (parseFloat(v) || 0), 0);
     return optimized.map(h => {
@@ -326,24 +296,22 @@ export default function ImportPage() {
   function normalizeWeights() {
     const total = Object.values(editedWeights).reduce((s, v) => s + (parseFloat(v) || 0), 0);
     if (total === 0) return;
-    const normalized: Record<string, string> = {};
-    for (const [t, v] of Object.entries(editedWeights)) {
-      normalized[t] = ((parseFloat(v) || 0) / total * 100).toFixed(1);
-    }
-    setEditedWeights(normalized);
+    const n: Record<string, string> = {};
+    for (const [t, v] of Object.entries(editedWeights)) n[t] = ((parseFloat(v) || 0) / total * 100).toFixed(1);
+    setEditedWeights(n);
   }
 
   function resetToAI() {
-    const reset: Record<string, string> = {};
-    for (const h of optimized) reset[h.ticker] = (h.weight * 100).toFixed(1);
-    setEditedWeights(reset);
+    const r: Record<string, string> = {};
+    for (const h of optimized) r[h.ticker] = (h.weight * 100).toFixed(1);
+    setEditedWeights(r);
   }
 
   return (
     <div className="p-8 max-w-5xl">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-900">Import Portfolio</h1>
-        <p className="text-sm text-slate-400 mt-0.5">Upload a brokerage export — Claude reads it, fetches 20-year history, and optimizes weights</p>
+        <p className="text-sm text-slate-400 mt-0.5">Upload a Schwab or Fidelity CSV export — weights are computed from your actual market values</p>
       </div>
 
       <StepBar current={step} />
@@ -357,36 +325,60 @@ export default function ImportPage() {
 
       {/* ── STEP 1: Upload ── */}
       {step === 'upload' && (
-        <div
-          className="border-2 border-dashed border-slate-200 rounded-2xl p-16 text-center cursor-pointer hover:border-emerald-300 hover:bg-emerald-50/30 transition-colors"
-          onClick={() => fileRef.current?.click()}
-          onDragOver={e => e.preventDefault()}
-          onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFileUpload(f); }}
-        >
-          <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload(f); }} />
-          {uploading ? (
-            <div className="flex flex-col items-center gap-3">
-              <Loader2 className="w-10 h-10 text-emerald-500 animate-spin" />
-              <p className="text-slate-600 font-medium">Claude is reading {fileName} and fetching live prices…</p>
-            </div>
-          ) : (
-            <>
-              <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                <Upload className="w-7 h-7 text-slate-400" />
+        <div>
+          <div
+            className="border-2 border-dashed border-slate-200 rounded-2xl p-16 text-center cursor-pointer hover:border-emerald-300 hover:bg-emerald-50/30 transition-colors"
+            onClick={() => fileRef.current?.click()}
+            onDragOver={e => e.preventDefault()}
+            onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleFileUpload(f); }}
+          >
+            <input ref={fileRef} type="file" accept=".csv" className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleFileUpload(f); }} />
+            {uploading ? (
+              <div className="flex flex-col items-center gap-3">
+                <Loader2 className="w-10 h-10 text-emerald-500 animate-spin" />
+                <p className="text-slate-600 font-medium">Parsing {fileName}…</p>
               </div>
-              <p className="text-slate-700 font-semibold mb-1">Drop your brokerage export here</p>
-              <p className="text-sm text-slate-400 mb-4">Excel (.xlsx, .xls) or CSV — any column format</p>
-              <p className="text-xs text-slate-400">Claude will identify the ticker, shares, and value columns automatically</p>
-            </>
-          )}
+            ) : (
+              <>
+                <div className="w-14 h-14 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Upload className="w-7 h-7 text-slate-400" />
+                </div>
+                <p className="text-slate-700 font-semibold mb-1">Drop your Schwab or Fidelity CSV here</p>
+                <p className="text-sm text-slate-400 mb-4">CSV export — Symbol, Quantity, Price, Market Value, Cost Basis</p>
+                <p className="text-xs text-slate-400">Weights are automatically calculated from your market values</p>
+              </>
+            )}
+          </div>
+          <div className="mt-4 p-4 bg-slate-50 rounded-xl text-xs text-slate-500 space-y-1">
+            <p className="font-semibold text-slate-700">How to export from Schwab:</p>
+            <p>Accounts → select account → Positions → Export (top right) → CSV</p>
+            <p className="font-semibold text-slate-700 mt-2">How to export from Fidelity:</p>
+            <p>Accounts & Trade → Portfolio → Positions → Download → CSV</p>
+          </div>
         </div>
       )}
 
       {/* ── STEP 2: Preview holdings ── */}
       {step === 'preview' && (
         <div>
-          {/* Weight controls header */}
+          {/* Summary row */}
+          <div className="grid grid-cols-3 gap-4 mb-6">
+            <div className="bg-white border border-slate-200 rounded-2xl p-4">
+              <p className="text-xs text-slate-400 mb-1">Broker Detected</p>
+              <p className="text-lg font-bold text-slate-800 capitalize">{broker || 'Unknown'}</p>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-2xl p-4">
+              <p className="text-xs text-slate-400 mb-1">Holdings</p>
+              <p className="text-lg font-bold text-slate-800">{holdings.length}</p>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-2xl p-4">
+              <p className="text-xs text-slate-400 mb-1">Total Market Value</p>
+              <p className="text-lg font-bold text-slate-800">{fmtUsd(totalMarketValue)}</p>
+            </div>
+          </div>
+
+          {/* Weight controls */}
           {(() => {
             const totalPct = Object.values(previewWeights).reduce((s, v) => s + (parseFloat(v) || 0), 0);
             return (
@@ -405,19 +397,18 @@ export default function ImportPage() {
                     }}
                     className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 border border-slate-200 hover:border-slate-400 rounded-lg transition-colors text-slate-600"
                   >
-                    <Equal className="w-3 h-3" /> Equal Weight
+                    <Equal className="w-3 h-3" /> Equal
                   </button>
                   <button
                     onClick={() => {
-                      const total = Object.values(previewWeights).reduce((s, v) => s + (parseFloat(v) || 0), 0);
-                      if (total === 0) return;
-                      const n: Record<string, string> = {};
-                      for (const [t, v] of Object.entries(previewWeights)) n[t] = ((parseFloat(v) || 0) / total * 100).toFixed(1);
-                      setPreviewWeights(n);
+                      const wts: Record<string, string> = {};
+                      for (const h of holdings) wts[h.ticker] = (h.weight * 100).toFixed(1);
+                      setPreviewWeights(wts);
+                      setWeightRationale('');
                     }}
-                    className="text-xs font-semibold px-3 py-1.5 border border-slate-200 hover:border-slate-400 rounded-lg transition-colors text-slate-600"
+                    className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 border border-slate-200 hover:border-slate-400 rounded-lg transition-colors text-slate-600"
                   >
-                    Normalize
+                    <RotateCcw className="w-3 h-3" /> Reset to Market
                   </button>
                   <button
                     onClick={handleSuggestWeights}
@@ -425,7 +416,7 @@ export default function ImportPage() {
                     className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 bg-violet-600 hover:bg-violet-500 text-white rounded-lg transition-colors disabled:opacity-50"
                   >
                     {suggestingWeights ? <Loader2 className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
-                    {suggestingWeights ? 'Thinking…' : 'AI Suggest Weights'}
+                    {suggestingWeights ? 'Thinking…' : 'AI Suggest'}
                   </button>
                 </div>
               </div>
@@ -441,52 +432,42 @@ export default function ImportPage() {
 
           <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden mb-6">
             <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
-              <h2 className="font-semibold text-slate-800">{holdings.length} holdings found</h2>
-              <span className="text-xs text-slate-400">{fileName}</span>
+              <h2 className="font-semibold text-slate-800">{holdings.length} positions from {fileName}</h2>
+              <span className="text-xs text-slate-400 capitalize">{broker} format</span>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 bg-slate-50">
                     <th className="text-left px-5 py-2.5 font-medium text-slate-500">Ticker</th>
-                    <th className="text-left px-4 py-2.5 font-medium text-slate-500">Name &amp; Philosophy</th>
-                    <th className="text-left px-4 py-2.5 font-medium text-slate-500">Ratings</th>
-                    <th className="text-center px-4 py-2.5 font-medium text-slate-500">Weight %</th>
+                    <th className="text-right px-4 py-2.5 font-medium text-slate-500">Qty</th>
                     <th className="text-right px-4 py-2.5 font-medium text-slate-500">Price</th>
-                    <th className="text-right px-4 py-2.5 font-medium text-slate-500">Value</th>
-                    <th className="text-right px-5 py-2.5 font-medium text-slate-500">1Y Return</th>
+                    <th className="text-right px-4 py-2.5 font-medium text-slate-500">Market Value</th>
+                    <th className="text-right px-4 py-2.5 font-medium text-slate-500">Cost Basis</th>
+                    <th className="text-right px-4 py-2.5 font-medium text-slate-500">Gain/Loss</th>
+                    <th className="text-center px-5 py-2.5 font-medium text-slate-500">Weight %</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {holdings.map(h => {
-                    const ar = h.analyst_rating ? ANALYST_LABELS[h.analyst_rating] : null;
-                    return (
+                  {holdings.map(h => (
                     <tr key={h.ticker} className="hover:bg-slate-50">
-                      <td className="px-5 py-3 font-mono font-semibold text-slate-900 align-top">{h.ticker}</td>
-                      <td className="px-4 py-3 max-w-[220px]">
-                        <p className="text-sm font-medium text-slate-700 truncate">{h.name || '—'}</p>
-                        {h.description && (
-                          <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">{h.description}</p>
-                        )}
+                      <td className="px-5 py-3">
+                        <p className="font-mono font-semibold text-slate-900">{h.ticker}</p>
+                        <p className="text-xs text-slate-400 truncate max-w-[160px]">{h.name}</p>
                       </td>
-                      <td className="px-4 py-3 align-top">
-                        <div className="flex flex-col gap-1">
-                          {ar && (
-                            <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full w-fit ${ar.color}`}>
-                              {ar.label}
-                              {h.analyst_count ? <span className="font-normal ml-1 opacity-70">({h.analyst_count})</span> : null}
-                            </span>
-                          )}
-                          {!ar && (
-                            <span className="text-xs text-slate-300">—</span>
-                          )}
-                        </div>
+                      <td className="px-4 py-3 text-right text-slate-700">{h.quantity.toLocaleString()}</td>
+                      <td className="px-4 py-3 text-right text-slate-700">{h.price ? fmtUsdExact(h.price) : '—'}</td>
+                      <td className="px-4 py-3 text-right text-slate-700">{h.market_value ? fmtUsd(h.market_value) : '—'}</td>
+                      <td className="px-4 py-3 text-right text-slate-700">{h.cost_basis ? fmtUsd(h.cost_basis) : '—'}</td>
+                      <td className={`px-4 py-3 text-right font-semibold ${h.gain_loss >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
+                        {h.gain_loss ? fmtUsd(h.gain_loss) : '—'}
+                        {h.gain_loss_pct ? <span className="text-xs font-normal ml-1 opacity-70">({h.gain_loss_pct >= 0 ? '+' : ''}{h.gain_loss_pct.toFixed(1)}%)</span> : null}
                       </td>
-                      <td className="px-4 py-3 text-center align-top">
+                      <td className="px-5 py-3 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <input
                             type="number"
-                            min={0} max={100} step={0.5}
+                            min={0} max={100} step={0.1}
                             value={previewWeights[h.ticker] ?? ''}
                             onChange={e => setPreviewWeights(prev => ({ ...prev, [h.ticker]: e.target.value }))}
                             className="w-16 text-center border border-slate-200 rounded-lg px-2 py-1 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
@@ -494,57 +475,23 @@ export default function ImportPage() {
                           <span className="text-slate-400 text-xs">%</span>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-right text-slate-700 align-top">{h.price ? fmtUsd(h.price) : '—'}</td>
-                      <td className="px-4 py-3 text-right text-slate-700 align-top">{fmtUsd(h.value)}</td>
-                      <td className={`px-5 py-3 text-right font-semibold align-top ${h.year_return == null ? 'text-slate-300' : h.year_return >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>
-                        {pct(h.year_return)}
-                      </td>
                     </tr>
-                    );
-                  })}
+                  ))}
                 </tbody>
               </table>
             </div>
           </div>
 
-          {/* Target return + cash inputs */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 mb-6 space-y-5">
-            <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-3">
-                Target Annual Return: <span className="text-emerald-600">{(targetReturn * 100).toFixed(0)}%</span>
-              </label>
-              <input type="range" min={2} max={20} step={0.5} value={targetReturn * 100}
-                onChange={e => setTargetReturn(parseFloat(e.target.value) / 100)}
-                className="w-full accent-emerald-500" />
-              <div className="flex justify-between text-xs text-slate-400 mt-1">
-                <span>2% Conservative</span><span>10% Balanced</span><span>20% Aggressive</span>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                  Available Cash to Invest <span className="font-normal text-slate-400">(optional)</span>
-                </label>
-                <div className="relative">
-                  <DollarSign className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <input type="text" value={availableCash}
-                    onChange={e => setAvailableCash(e.target.value)}
-                    placeholder="e.g. 50,000"
-                    className="w-full pl-9 pr-4 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
-                </div>
-                <p className="text-xs text-slate-400 mt-1">Used to calculate shares to buy per holding</p>
-              </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">
-                  Portfolio Lifespan: <span className="text-emerald-600">{lifespanYears} years</span>
-                </label>
-                <input type="range" min={1} max={40} step={1} value={lifespanYears}
-                  onChange={e => setLifespanYears(parseInt(e.target.value))}
-                  className="w-full accent-emerald-500" />
-                <div className="flex justify-between text-xs text-slate-400 mt-1">
-                  <span>1yr Short</span><span>10yr Medium</span><span>40yr Long</span>
-                </div>
-              </div>
+          {/* Optional: target return for AI steps */}
+          <div className="bg-white border border-slate-200 rounded-2xl p-6 mb-6">
+            <label className="block text-sm font-semibold text-slate-700 mb-3">
+              Target Annual Return <span className="text-slate-400 font-normal">(for AI analysis)</span>: <span className="text-emerald-600">{(targetReturn * 100).toFixed(0)}%</span>
+            </label>
+            <input type="range" min={2} max={20} step={0.5} value={targetReturn * 100}
+              onChange={e => setTargetReturn(parseFloat(e.target.value) / 100)}
+              className="w-full accent-emerald-500" />
+            <div className="flex justify-between text-xs text-slate-400 mt-1">
+              <span>2% Conservative</span><span>10% Balanced</span><span>20% Aggressive</span>
             </div>
           </div>
 
@@ -552,12 +499,18 @@ export default function ImportPage() {
             <button onClick={() => setStep('upload')} className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
               <ChevronLeft className="w-4 h-4" /> Back
             </button>
-            <button onClick={handleAnalyze} disabled={analyzing}
-              className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50">
-              {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4" />}
-              {analyzing ? 'Fetching 20-year history…' : 'Analyze with AI'}
-              {!analyzing && <ChevronRight className="w-4 h-4" />}
-            </button>
+            <div className="flex gap-3">
+              <button onClick={() => setStep('save')}
+                className="flex items-center gap-2 px-5 py-2.5 border border-slate-200 hover:border-emerald-400 text-slate-700 text-sm font-semibold rounded-xl transition-colors">
+                Skip to Save
+              </button>
+              <button onClick={handleAnalyze} disabled={analyzing}
+                className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50">
+                {analyzing ? <Loader2 className="w-4 h-4 animate-spin" /> : <BarChart3 className="w-4 h-4" />}
+                {analyzing ? 'Fetching history…' : 'Analyze with AI'}
+                {!analyzing && <ChevronRight className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -565,7 +518,6 @@ export default function ImportPage() {
       {/* ── STEP 3: AI Analysis ── */}
       {step === 'analyze' && analysis && (
         <div>
-          {/* Portfolio-level summary */}
           <div className="grid grid-cols-3 gap-4 mb-6">
             {[
               { label: 'Best Blended Year', value: analysis.portfolio_best, icon: TrendingUp, color: 'emerald' },
@@ -578,16 +530,13 @@ export default function ImportPage() {
                   <p className={`text-xs font-semibold text-${color}-700`}>{label}</p>
                 </div>
                 <p className={`text-3xl font-bold text-${color}-700`}>{pct(value, 1)}</p>
-                <p className={`text-xs text-${color}-500 mt-0.5`}>equal-weight estimate</p>
               </div>
             ))}
           </div>
 
-          {/* Per-holding historical table */}
           <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden mb-6">
             <div className="px-5 py-3.5 border-b border-slate-100">
               <h2 className="font-semibold text-slate-800">Historical Performance by Holding</h2>
-              <p className="text-xs text-slate-400 mt-0.5">Up to 20 years of annual return data per security</p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -603,39 +552,26 @@ export default function ImportPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
-                  {analysis.stats.map(s => {
-                    const h = holdings.find(h => h.ticker === s.ticker);
-                    return (
+                  {analysis.stats.map(s => (
                     <tr key={s.ticker} className="hover:bg-slate-50">
-                      <td className="px-5 py-3 align-top">
-                        <p className="font-mono font-semibold text-slate-900">{s.ticker}</p>
-                        {h?.description && <p className="text-xs text-slate-400 mt-0.5 max-w-[160px] leading-relaxed">{h.description}</p>}
-                      </td>
+                      <td className="px-5 py-3 font-mono font-semibold text-slate-900">{s.ticker}</td>
                       <td className={`px-4 py-3 text-right font-bold ${s.cagr >= 0 ? 'text-emerald-600' : 'text-rose-500'}`}>{pct(s.cagr)}</td>
-                      <td className="px-4 py-3 text-right">
-                        <span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">{pct(s.best_year)}</span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <span className="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{pct(s.median_year)}</span>
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <span className="text-xs font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded">{pct(s.worst_year)}</span>
-                      </td>
+                      <td className="px-4 py-3 text-right"><span className="text-xs font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">{pct(s.best_year)}</span></td>
+                      <td className="px-4 py-3 text-right"><span className="text-xs font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">{pct(s.median_year)}</span></td>
+                      <td className="px-4 py-3 text-right"><span className="text-xs font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded">{pct(s.worst_year)}</span></td>
                       <td className="px-4 py-3 text-right text-slate-500">{pct(s.volatility)}</td>
                       <td className="px-5 py-3 text-right text-slate-400">{s.years_of_data}y</td>
                     </tr>
-                  );})}
+                  ))}
                 </tbody>
               </table>
             </div>
           </div>
 
-          {/* AI Narrative */}
           <div className="bg-slate-900 rounded-2xl p-6 mb-6">
             <div className="flex items-center gap-2 mb-4">
               <div className="w-6 h-6 bg-violet-500 rounded-lg flex items-center justify-center text-white text-xs font-bold">AI</div>
               <h2 className="font-semibold text-white">Portfolio Analysis</h2>
-              <span className="text-xs text-slate-400 ml-auto">Target: {(targetReturn * 100).toFixed(0)}%{cash > 0 ? ` · $${cash.toLocaleString()} to invest` : ''}</span>
             </div>
             <div className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">{analysis.ai_narrative}</div>
           </div>
@@ -644,17 +580,23 @@ export default function ImportPage() {
             <button onClick={() => setStep('preview')} className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
               <ChevronLeft className="w-4 h-4" /> Back
             </button>
-            <button onClick={handleOptimize} disabled={optimizing}
-              className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50">
-              {optimizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <TrendingUp className="w-4 h-4" />}
-              {optimizing ? 'Optimizing…' : 'Optimize Weights'}
-              {!optimizing && <ChevronRight className="w-4 h-4" />}
-            </button>
+            <div className="flex gap-3">
+              <button onClick={() => setStep('save')}
+                className="flex items-center gap-2 px-5 py-2.5 border border-slate-200 hover:border-emerald-400 text-slate-700 text-sm font-semibold rounded-xl transition-colors">
+                Skip to Save
+              </button>
+              <button onClick={handleOptimize} disabled={optimizing}
+                className="flex items-center gap-2 px-6 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-semibold rounded-xl transition-colors disabled:opacity-50">
+                {optimizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <TrendingUp className="w-4 h-4" />}
+                {optimizing ? 'Optimizing…' : 'Optimize Weights'}
+                {!optimizing && <ChevronRight className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* ── STEP 4: Optimized weights + allocation ── */}
+      {/* ── STEP 4: Optimized weights ── */}
       {step === 'optimize' && (
         <div>
           <div className="grid grid-cols-3 gap-4 mb-6">
@@ -675,25 +617,35 @@ export default function ImportPage() {
             <div className="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <h2 className="font-semibold text-slate-800 flex items-center gap-2">
-                  <SlidersHorizontal className="w-4 h-4 text-slate-400" />
-                  Allocation Weights
+                  <SlidersHorizontal className="w-4 h-4 text-slate-400" /> Allocation Weights
                 </h2>
-                <p className="text-xs text-slate-400 mt-0.5">Edit any weight — totals update live. Click Normalize to force 100%.</p>
+                <p className="text-xs text-slate-400 mt-0.5">AI-suggested — edit and normalize as needed</p>
               </div>
               <div className="flex items-center gap-2">
                 <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${Math.abs(totalWeightPct - 100) < 0.2 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
                   Total: {totalWeightPct.toFixed(1)}%
                 </span>
-                <button onClick={normalizeWeights}
-                  className="text-xs font-semibold px-3 py-1.5 border border-slate-200 hover:border-emerald-400 hover:text-emerald-700 rounded-lg transition-colors text-slate-600">
+                <button onClick={normalizeWeights} className="text-xs font-semibold px-3 py-1.5 border border-slate-200 hover:border-emerald-400 hover:text-emerald-700 rounded-lg transition-colors text-slate-600">
                   Normalize
                 </button>
-                <button onClick={resetToAI}
-                  className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 border border-slate-200 hover:border-violet-400 hover:text-violet-700 rounded-lg transition-colors text-slate-600">
+                <button onClick={resetToAI} className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 border border-slate-200 hover:border-violet-400 hover:text-violet-700 rounded-lg transition-colors text-slate-600">
                   <RotateCcw className="w-3 h-3" /> Reset to AI
                 </button>
               </div>
             </div>
+
+            {/* Cash input for allocation math */}
+            <div className="px-5 py-3 border-b border-slate-100 bg-slate-50 flex items-center gap-4">
+              <label className="text-xs font-semibold text-slate-600">Available Cash (optional):</label>
+              <div className="relative">
+                <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                <input type="text" value={availableCash}
+                  onChange={e => setAvailableCash(e.target.value)}
+                  placeholder="50,000"
+                  className="pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 w-32" />
+              </div>
+            </div>
+
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -718,13 +670,10 @@ export default function ImportPage() {
                         </td>
                         <td className="px-4 py-2.5 text-center">
                           <div className="flex items-center justify-center gap-1">
-                            <input
-                              type="number"
-                              min={0} max={100} step={0.5}
+                            <input type="number" min={0} max={100} step={0.5}
                               value={editedWeights[h.ticker] ?? ''}
                               onChange={e => setEditedWeights(prev => ({ ...prev, [h.ticker]: e.target.value }))}
-                              className="w-16 text-center border border-slate-200 rounded-lg px-2 py-1 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
-                            />
+                              className="w-16 text-center border border-slate-200 rounded-lg px-2 py-1 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:border-transparent" />
                             <span className="text-slate-400 text-xs">%</span>
                           </div>
                         </td>
@@ -771,7 +720,7 @@ export default function ImportPage() {
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-1.5">Portfolio Name</label>
               <input type="text" value={portfolioName} onChange={e => setPortfolioName(e.target.value)}
-                placeholder="e.g. My Fidelity 401k"
+                placeholder="e.g. My Schwab 401k"
                 className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400" />
             </div>
             <div>
@@ -779,6 +728,38 @@ export default function ImportPage() {
               <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2}
                 className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 resize-none" />
             </div>
+
+            {/* Bucket label */}
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Bucket Label <span className="text-slate-400 font-normal">(optional — links to 360Retirement strategy)</span></label>
+              <div className="grid grid-cols-4 gap-2">
+                <button onClick={() => setBucketGroup(null)}
+                  className={`py-2.5 px-3 rounded-xl border-2 text-sm font-semibold transition-colors ${bucketGroup === null ? 'border-slate-500 bg-slate-100 text-slate-800' : 'border-slate-200 text-slate-400 hover:border-slate-300'}`}>
+                  None
+                </button>
+                {([1, 2, 3] as BucketGroup[]).map(bg => (
+                  <button key={bg} onClick={() => setBucketGroup(bg)}
+                    className={`py-2.5 px-3 rounded-xl border-2 text-xs font-semibold transition-colors ${bucketGroup === bg ? BUCKET_COLORS[bg] + ' border-current' : 'border-slate-200 text-slate-500 hover:border-slate-300'}`}>
+                    {BUCKET_LABELS[bg]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Account type */}
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Account Type</label>
+              <div className="grid grid-cols-3 gap-2">
+                {(['taxable', 'pretax', 'roth'] as AccountType[]).map(at => (
+                  <button key={at} onClick={() => setAccountType(at)}
+                    className={`py-2.5 px-3 rounded-xl border-2 text-sm font-semibold transition-colors ${accountType === at ? 'border-emerald-500 bg-emerald-50 text-emerald-800' : 'border-slate-200 text-slate-500 hover:border-slate-300'}`}>
+                    {ACCOUNT_LABELS[at]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Visibility */}
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-2">Visibility</label>
               <div className="grid grid-cols-2 gap-3">
@@ -799,13 +780,18 @@ export default function ImportPage() {
             </div>
           </div>
 
+          {/* Summary */}
           <div className="bg-slate-50 rounded-2xl p-4 mb-6 text-sm text-slate-600 space-y-1">
-            <p><strong>{liveRows.length || holdings.length}</strong> holdings · <strong>{(targetReturn * 100).toFixed(0)}%</strong> target · <strong>{lifespanYears}yr</strong> lifespan{liveRows.length > 0 ? ` · ${pct(liveBlended)} blended CAGR` : ''}</p>
-            {cash > 0 && liveRows.length > 0 && <p>Total deployment: <strong>{fmtUsd(liveTotalAllocated)}</strong> of <strong>{fmtUsd(cash)}</strong> available</p>}
+            <p>
+              <strong>{holdings.length}</strong> holdings ·{' '}
+              <strong>{fmtUsd(totalMarketValue)}</strong> market value ·{' '}
+              <strong>{fmtUsd(holdings.reduce((s, h) => s + (h.cost_basis || 0), 0))}</strong> cost basis
+            </p>
+            {liveRows.length > 0 && <p>AI-optimized weights · <strong>{pct(liveBlended)}</strong> blended CAGR</p>}
           </div>
 
           <div className="flex justify-between">
-            <button onClick={() => setStep('optimize')} className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
+            <button onClick={() => setStep(liveRows.length > 0 ? 'optimize' : 'preview')} className="flex items-center gap-2 px-4 py-2.5 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">
               <ChevronLeft className="w-4 h-4" /> Back
             </button>
             <button onClick={handleSave} disabled={saving || !portfolioName.trim()}
