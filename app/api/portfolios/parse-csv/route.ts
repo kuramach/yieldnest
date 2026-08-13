@@ -3,7 +3,9 @@ import { createClient } from '@/lib/supabase/server';
 
 function parseCSV(text: string): string[][] {
   const rows: string[][] = [];
-  const lines = text.trim().split(/\r?\n/);
+  // Strip UTF-8 BOM if present
+  const cleaned = text.replace(/^\uFEFF/, '');
+  const lines = cleaned.trim().split(/\r?\n/);
   for (const line of lines) {
     const cols: string[] = [];
     let inQuote = false, cur = '';
@@ -66,7 +68,7 @@ function parseSchwab(rows: string[][], headerIdx: number, headers: string[]): Om
   const result: Omit<ParsedCsvHolding, 'weight'>[] = [];
   for (let i = headerIdx + 1; i < rows.length; i++) {
     const row = rows[i];
-    if (row.length < 3) break;
+    if (row.length < 3) continue;
     const ticker = col(row, headers, 'symbol');
     if (!ticker || ticker === 'Account Total' || ticker === '--' || ticker === 'Cash & Cash Investments') continue;
     const qty = parseNum(col(row, headers, 'quantity'));
@@ -88,7 +90,7 @@ function parseFidelity(rows: string[][], headerIdx: number, headers: string[]): 
   const result: Omit<ParsedCsvHolding, 'weight'>[] = [];
   for (let i = headerIdx + 1; i < rows.length; i++) {
     const row = rows[i];
-    if (row.length < 3) break;
+    if (row.length < 3) continue;
     const ticker = col(row, headers, 'symbol', 'ticker');
     if (!ticker || ticker.startsWith('Account') || ticker === 'Pending Activity') continue;
     const qty = parseNum(col(row, headers, 'quantity'));
@@ -125,7 +127,10 @@ export async function POST(req: NextRequest) {
     ? parseFidelity(rows, header.idx, header.headers)
     : parseSchwab(rows, header.idx, header.headers);
 
-  if (!parsed.length) return NextResponse.json({ error: 'No valid rows found in CSV' }, { status: 422 });
+  if (!parsed.length) return NextResponse.json({
+    error: 'No valid rows found in CSV',
+    debug: { broker, headers: header.headers.slice(0, 10), rows_scanned: rows.length - header.idx - 1 },
+  }, { status: 422 });
 
   const totalMarketValue = parsed.reduce((s, r) => s + r.market_value, 0);
   const holdings: ParsedCsvHolding[] = parsed.map(r => ({
