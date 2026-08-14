@@ -85,10 +85,13 @@ function PortfolioCard({ portfolio, showTagger = false }: { portfolio: Portfolio
 }
 
 function BucketGroupView({ portfolios }: { portfolios: PortfolioWithHoldings[] }) {
+  const deployed = portfolios.filter(p => p.status === 'deployed');
+  const drafts   = portfolios.filter(p => p.status !== 'deployed');
+
   const grouped: Record<BucketGroup, PortfolioWithHoldings[]> = { 1: [], 2: [], 3: [] };
   const untagged: PortfolioWithHoldings[] = [];
 
-  for (const p of portfolios) {
+  for (const p of drafts) {
     if (p.bucket_group === 1 || p.bucket_group === 2 || p.bucket_group === 3) {
       grouped[p.bucket_group].push(p);
     } else {
@@ -98,6 +101,21 @@ function BucketGroupView({ portfolios }: { portfolios: PortfolioWithHoldings[] }
 
   return (
     <div className="space-y-8">
+      {/* Live portfolios always first, across all buckets */}
+      {deployed.length > 0 && (
+        <div>
+          <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl border border-emerald-300 bg-emerald-50 mb-4">
+            <span className="text-sm font-bold text-emerald-700">Live</span>
+            <span className="ml-auto text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700">
+              {deployed.length} {deployed.length === 1 ? 'portfolio' : 'portfolios'}
+            </span>
+          </div>
+          <div className="space-y-3">
+            {deployed.map(p => <PortfolioCard key={p.id} portfolio={p} />)}
+          </div>
+        </div>
+      )}
+
       {([1, 2, 3] as BucketGroup[]).map((g) => {
         const meta = BUCKET_META[g];
         const list = grouped[g];
@@ -108,9 +126,11 @@ function BucketGroupView({ portfolios }: { portfolios: PortfolioWithHoldings[] }
                 <span className={`text-sm font-bold ${meta.header}`}>{meta.label}</span>
                 <span className="text-xs text-slate-500 ml-2">{meta.sub}</span>
               </div>
-              <span className={`ml-auto text-xs font-semibold px-2 py-0.5 rounded-full ${meta.badge}`}>
-                {list.length} {list.length === 1 ? 'portfolio' : 'portfolios'}
-              </span>
+              {list.length > 0 && (
+                <span className={`ml-auto text-xs font-semibold px-2 py-0.5 rounded-full ${meta.badge}`}>
+                  {list.length} {list.length === 1 ? 'portfolio' : 'portfolios'}
+                </span>
+              )}
             </div>
             {list.length === 0 ? (
               <div className="border-2 border-dashed border-slate-200 rounded-2xl py-8 text-center">
