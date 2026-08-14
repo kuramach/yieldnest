@@ -22,23 +22,33 @@ const ACCOUNT_META: Record<AccountType, { label: string; badge: string }> = {
   roth:    { label: 'Roth',     badge: 'bg-violet-100 text-violet-700' },
 };
 
+const byStatusThenDate = (a: PortfolioWithHoldings, b: PortfolioWithHoldings) => {
+  if (a.status === b.status) return 0;
+  return a.status === 'deployed' ? -1 : 1;
+};
+
 function PortfolioCard({ portfolio, showTagger = false }: { portfolio: PortfolioWithHoldings; showTagger?: boolean }) {
   const tickers = portfolio.holdings.slice(0, 4);
+  const deployed = portfolio.status === 'deployed';
 
   return (
     <Link
       href={`/dashboard/portfolio/${portfolio.id}`}
-      className="block border border-slate-200 rounded-2xl p-5 bg-white hover:border-emerald-200 hover:shadow-md transition-all group"
+      className={`block rounded-2xl p-5 transition-all group ${
+        deployed
+          ? 'border-2 border-emerald-300 bg-emerald-50/40 hover:border-emerald-400 hover:shadow-md hover:shadow-emerald-100'
+          : 'border border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'
+      }`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1 flex-wrap">
-            <h3 className="font-bold text-slate-900 group-hover:text-emerald-700 transition-colors truncate">
+            <h3 className={`font-bold truncate transition-colors ${deployed ? 'text-emerald-900 group-hover:text-emerald-700' : 'text-slate-900 group-hover:text-emerald-700'}`}>
               {portfolio.name}
             </h3>
-            {portfolio.status === 'deployed'
-              ? <span className="text-[10px] font-semibold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full flex-shrink-0">Deployed</span>
-              : <span className="text-[10px] font-semibold bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full flex-shrink-0">Draft</span>}
+            {deployed
+              ? <span className="text-[10px] font-bold bg-emerald-500 text-white px-2 py-0.5 rounded-full flex-shrink-0">Live</span>
+              : <span className="text-[10px] font-semibold bg-slate-100 text-slate-400 px-2 py-0.5 rounded-full flex-shrink-0">Draft</span>}
             {portfolio.account_type && (
               <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${ACCOUNT_META[portfolio.account_type].badge}`}>
                 {ACCOUNT_META[portfolio.account_type].label}
@@ -59,7 +69,7 @@ function PortfolioCard({ portfolio, showTagger = false }: { portfolio: Portfolio
         {tickers.length > 0 && (
           <div className="flex gap-1 shrink-0 flex-wrap justify-end max-w-[140px]">
             {tickers.map(h => (
-              <span key={h.id} className="font-mono text-[10px] font-bold bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded">
+              <span key={h.id} className={`font-mono text-[10px] font-bold px-1.5 py-0.5 rounded ${deployed ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'}`}>
                 {h.ticker}
               </span>
             ))}
@@ -123,12 +133,12 @@ function BucketGroupView({ portfolios }: { portfolios: PortfolioWithHoldings[] }
                         {ACCOUNT_META[at].label}
                       </p>
                       <div className="space-y-2">
-                        {atList.map(p => <PortfolioCard key={p.id} portfolio={p} />)}
+                        {[...atList].sort(byStatusThenDate).map(p => <PortfolioCard key={p.id} portfolio={p} />)}
                       </div>
                     </div>
                   );
                 })}
-                {list.filter(p => !p.account_type).map(p => <PortfolioCard key={p.id} portfolio={p} />)}
+                {list.filter(p => !p.account_type).sort(byStatusThenDate).map(p => <PortfolioCard key={p.id} portfolio={p} />)}
               </div>
             )}
           </div>
@@ -144,7 +154,7 @@ function BucketGroupView({ portfolios }: { portfolios: PortfolioWithHoldings[] }
             </span>
           </div>
           <div className="space-y-3">
-            {untagged.map(p => <PortfolioCard key={p.id} portfolio={p} showTagger />)}
+            {[...untagged].sort(byStatusThenDate).map(p => <PortfolioCard key={p.id} portfolio={p} showTagger />)}
           </div>
         </div>
       )}
