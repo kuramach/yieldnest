@@ -230,13 +230,31 @@ export async function POST(req: NextRequest, { params }: Params) {
       .eq('portfolio_id', portfolioId)
   ));
 
-  // Update weights for existing holdings (keep weight; just refresh cost data)
   // Re-fetch to return updated list
   const { data: updated } = await supabase
     .from('portfolio_holdings')
     .select('*')
     .eq('portfolio_id', portfolioId)
     .order('added_at', { ascending: true });
+
+  // Save a versioned snapshot for tax/audit history
+  await supabase.from('portfolio_import_snapshots').insert({
+    portfolio_id: portfolioId,
+    source: broker,
+    total_market_value: totalMarketValue,
+    holdings: withWeights.map(r => ({
+      ticker: r.ticker,
+      name: r.name,
+      quantity: r.quantity,
+      price: r.price,
+      cost_basis: r.cost_basis,
+      market_value: r.market_value,
+      gain_loss: r.gain_loss,
+      gain_loss_pct: r.gain_loss_pct,
+      asset_type: r.asset_type,
+      weight: r.weight,
+    })),
+  });
 
   return NextResponse.json({
     success: true,

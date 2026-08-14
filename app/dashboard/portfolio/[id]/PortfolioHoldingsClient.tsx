@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import type { PortfolioHolding, SecurityQuote, BucketGroup, AccountType } from '@/lib/types';
 import SchwabImportModal from '@/components/SchwabImportModal';
+import ImportHistoryPanel from './ImportHistoryPanel';
 
 interface Props {
   portfolioId: number;
@@ -172,7 +173,7 @@ export default function PortfolioHoldingsClient({
     const next = status === 'draft' ? 'deployed' : 'draft';
     setStatus(next);
     await fetch(`/api/portfolios/${portfolioId}`, {
-      method: 'PATCH',
+      method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: next }),
     });
@@ -488,6 +489,8 @@ export default function PortfolioHoldingsClient({
           </button>
         </div>
       )}
+
+      <ImportHistoryPanel portfolioId={portfolioId} />
 
       {showImport && (
         <SchwabImportModal
