@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import { createClient } from '@/lib/supabase/server';
 import PortfolioHoldingsClient from './PortfolioHoldingsClient';
+import PortfolioNameEditor from './PortfolioNameEditor';
 
 type Props = { params: Promise<{ id: string }> };
 
@@ -57,7 +58,7 @@ export default async function PortfolioPage({ params }: Props) {
       <div className="flex items-start justify-between mb-6">
         <div>
           <div className="flex items-center gap-2 flex-wrap mb-1">
-            <h1 className="text-2xl font-bold text-slate-900">{portfolio.name}</h1>
+            <PortfolioNameEditor portfolioId={portfolioId} initialName={portfolio.name} />
             {bucketMeta && (
               <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${bucketMeta.color}`}>
                 {bucketMeta.label}
