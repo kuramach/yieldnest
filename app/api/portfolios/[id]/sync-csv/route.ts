@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { classifyTicker } from '@/lib/tax-classification';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -226,6 +227,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       purchase_price: row.quantity > 0 ? row.cost_basis / row.quantity : 0,
       cost_basis: row.cost_basis,
       weight: row.weight,
+      tax_treatment: classifyTicker(row.ticker),
     }, { onConflict: 'portfolio_id,ticker' })
       .eq('portfolio_id', portfolioId)
   ));

@@ -18,6 +18,7 @@ export async function PUT(request: NextRequest, { params }: Props) {
   if (body.purchase_price !== undefined) updates.purchase_price = body.purchase_price;
   if (body.cost_basis !== undefined) updates.cost_basis = body.cost_basis;
   if (body.name !== undefined) updates.name = body.name;
+  if (['standard', '1256', 'collectible', 'ric'].includes(body.tax_treatment)) updates.tax_treatment = body.tax_treatment;
 
   const { data, error } = await supabase
     .from('portfolio_holdings')

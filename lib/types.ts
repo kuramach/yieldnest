@@ -227,6 +227,7 @@ export interface PortfolioHolding {
   purchase_price: number;
   cost_basis?: number;
   added_at: string;
+  tax_treatment?: 'standard' | '1256' | 'collectible' | 'ric';
   // enriched client-side
   year_return?: number;
   price?: number;

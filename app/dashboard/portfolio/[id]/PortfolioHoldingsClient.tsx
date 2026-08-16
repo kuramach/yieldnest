@@ -8,6 +8,8 @@ import {
 import type { PortfolioHolding, SecurityQuote, BucketGroup, AccountType } from '@/lib/types';
 import SchwabImportModal from '@/components/SchwabImportModal';
 import ImportHistoryPanel from './ImportHistoryPanel';
+import TaxSummaryPanel from './TaxSummaryPanel';
+import { TAX_TREATMENT_META, type TaxTreatment } from '@/lib/tax-classification';
 
 interface Props {
   portfolioId: number;
@@ -407,7 +409,19 @@ export default function PortfolioHoldingsClient({
                     <td className="px-5 py-3">
                       <span className="font-mono font-bold text-sm bg-slate-100 text-slate-800 px-2 py-0.5 rounded">{h.ticker}</span>
                     </td>
-                    <td className="px-5 py-3 text-sm text-slate-600 max-w-[180px] truncate">{h.name || '—'}</td>
+                    <td className="px-5 py-3 text-sm text-slate-600 max-w-[200px]">
+                      <div className="flex items-center gap-1.5 truncate">
+                        <span className="truncate">{h.name || '—'}</span>
+                        {h.tax_treatment && h.tax_treatment !== 'standard' && (() => {
+                          const meta = TAX_TREATMENT_META[h.tax_treatment as TaxTreatment];
+                          return meta ? (
+                            <span title={meta.tip} className={`shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded ${meta.badge}`}>
+                              {meta.label}
+                            </span>
+                          ) : null;
+                        })()}
+                      </div>
+                    </td>
                     <td className="px-5 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <input
@@ -491,6 +505,7 @@ export default function PortfolioHoldingsClient({
       )}
 
       <ImportHistoryPanel portfolioId={portfolioId} />
+      <TaxSummaryPanel portfolioId={portfolioId} />
 
       {showImport && (
         <SchwabImportModal
