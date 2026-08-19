@@ -163,6 +163,14 @@ export default function SchwabImportModal({ portfolioId, onSuccess, onClose }: P
                       <li>Save and upload here</li>
                     </ol>
                   </div>
+                  <div>
+                    <p className="text-xs font-bold text-red-700 mb-1.5">Merrill Lynch</p>
+                    <ol className="text-xs text-slate-500 space-y-1 list-decimal list-inside">
+                      <li>Log in → <strong>My Accounts</strong> → <strong>Portfolio</strong></li>
+                      <li>Click <strong>Holdings</strong>, then select your account(s)</li>
+                      <li>Click <strong>Export Data</strong> and save the CSV file</li>
+                    </ol>
+                  </div>
                   <p className="text-[11px] text-slate-400">
                     We capture: Symbol, Quantity, Cost Basis, Market Value, and Gain/Loss.
                     Weights are not changed by the import.
