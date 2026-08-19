@@ -17,7 +17,7 @@ interface MatchedHolding {
 }
 
 interface PreviewResult {
-  broker: 'schwab' | 'fidelity' | 'unknown';
+  broker: 'schwab' | 'fidelity' | 'merrill' | 'unknown';
   matched: MatchedHolding[];
   unmatched: string[];
   total_rows: number;
@@ -26,12 +26,14 @@ interface PreviewResult {
 const BROKER_LABELS: Record<string, string> = {
   schwab: 'Schwab',
   fidelity: 'Fidelity',
+  merrill: 'Merrill Lynch',
   unknown: 'Unknown broker',
 };
 
 const BROKER_BADGE_COLORS: Record<string, string> = {
   schwab: 'bg-blue-100 text-blue-700',
   fidelity: 'bg-green-100 text-green-700',
+  merrill: 'bg-red-100 text-red-700',
   unknown: 'bg-slate-100 text-slate-600',
 };
 
@@ -140,7 +142,7 @@ export default function CsvImportModal({ bucketId, onSuccess }: Props) {
         {step === 'upload' && (
           <div className="px-6 py-5 space-y-4">
             <p className="text-sm text-slate-600">
-              We support <strong>Schwab</strong> and <strong>Fidelity</strong> positions CSV exports.
+              We support <strong>Schwab</strong>, <strong>Fidelity</strong>, and <strong>Merrill Lynch</strong> positions CSV exports.
             </p>
 
             {/* Instructions collapsible */}

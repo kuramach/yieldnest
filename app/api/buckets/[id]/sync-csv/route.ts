@@ -33,14 +33,15 @@ function parseCSV(text: string): string[][] {
 function findHeaderRow(rows: string[][]): { idx: number; headers: string[] } | null {
   for (let i = 0; i < rows.length; i++) {
     const lower = rows[i].map(h => h.toLowerCase().replace(/[\s"]/g, ''));
-    if (lower.includes('symbol') || lower.includes('ticker')) {
+    if (lower.includes('symbol') || lower.includes('ticker') || lower.includes('symboldescription')) {
       return { idx: i, headers: lower };
     }
   }
   return null;
 }
 
-function detectBroker(headers: string[]): 'schwab' | 'fidelity' | 'unknown' {
+function detectBroker(headers: string[]): 'schwab' | 'fidelity' | 'merrill' | 'unknown' {
+  if (headers.includes('symboldescription')) return 'merrill';
   if (headers.some(h => h.includes('marketvalue') || h.includes('costbasis'))) return 'schwab';
   if (headers.some(h => h.includes('currentvalue') || h.includes('costbasistotal'))) return 'fidelity';
   return 'unknown';
@@ -48,7 +49,8 @@ function detectBroker(headers: string[]): 'schwab' | 'fidelity' | 'unknown' {
 
 function col(row: string[], headers: string[], ...names: string[]): string {
   for (const n of names) {
-    const idx = headers.indexOf(n);
+    let idx = headers.indexOf(n);
+    if (idx === -1) idx = headers.findIndex(h => h.includes(n));
     if (idx !== -1 && row[idx] !== undefined) return row[idx].replace(/[$,%]/g, '').trim();
   }
   return '';
@@ -71,6 +73,35 @@ function parseSchwab(rows: string[][], headerIdx: number, headers: string[]): Cs
     const mktValue = parseNum(col(row, headers, 'marketvalue'));
     if (!qty) continue;
     result.push({ ticker: ticker.toUpperCase(), quantity: qty, cost_basis: costBasis, current_value: mktValue });
+  }
+  return result;
+}
+
+function parseMerrill(rows: string[][], headerIdx: number, headers: string[]): CsvHoldingRow[] {
+  const result: CsvHoldingRow[] = [];
+  const symIdx = headers.indexOf('symboldescription');
+  if (symIdx === -1) return result;
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (row.length < 6) continue;
+    const symDesc = (row[symIdx] || '').trim();
+    if (!symDesc) continue;
+    const spaceIdx = symDesc.indexOf(' ');
+    const ticker = spaceIdx > 0 ? symDesc.slice(0, spaceIdx) : symDesc;
+    // Skip numeric IDs (CUSIPs, internal fund IDs) and summary rows
+    if (!ticker || /^\d/.test(ticker)) continue;
+    const qty = parseNum(col(row, headers, 'quantity'));
+    if (!qty) continue;
+    const mktValue = parseNum(col(row, headers, 'value'));
+    if (!mktValue) continue;
+    // Gain/loss is "±$N ±P%" — take the dollar part
+    const glIdx = headers.findIndex(h => h.includes('unrealizedgain'));
+    let gainLoss = 0;
+    if (glIdx !== -1 && row[glIdx]) {
+      const raw = row[glIdx].replace(/[$,%]/g, '').trim();
+      gainLoss = parseFloat(raw.split(/\s+/)[0] || '0') || 0;
+    }
+    result.push({ ticker: ticker.toUpperCase(), quantity: qty, cost_basis: mktValue - gainLoss, current_value: mktValue });
   }
   return result;
 }
@@ -128,8 +159,9 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   if (broker === 'fidelity') {
     parsed = parseFidelity(rows, header.idx, header.headers);
+  } else if (broker === 'merrill') {
+    parsed = parseMerrill(rows, header.idx, header.headers);
   } else {
-    // Schwab or unknown — try Schwab parser
     parsed = parseSchwab(rows, header.idx, header.headers);
   }
 

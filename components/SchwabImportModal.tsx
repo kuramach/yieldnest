@@ -25,7 +25,7 @@ interface NewRow {
 }
 
 interface PreviewResult {
-  broker: 'schwab' | 'fidelity' | 'unknown';
+  broker: 'schwab' | 'fidelity' | 'merrill' | 'unknown';
   total_rows: number;
   total_market_value: number;
   matched: MatchedRow[];

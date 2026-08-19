@@ -27,12 +27,13 @@ function parseCSV(text: string): string[][] {
 function findHeaderRow(rows: string[][]): { idx: number; headers: string[] } | null {
   for (let i = 0; i < rows.length; i++) {
     const lower = rows[i].map(h => h.toLowerCase().replace(/[\s"]/g, ''));
-    if (lower.includes('symbol') || lower.includes('ticker')) return { idx: i, headers: lower };
+    if (lower.includes('symbol') || lower.includes('ticker') || lower.includes('symboldescription')) return { idx: i, headers: lower };
   }
   return null;
 }
 
-function detectBroker(headers: string[]): 'schwab' | 'fidelity' | 'unknown' {
+function detectBroker(headers: string[]): 'schwab' | 'fidelity' | 'merrill' | 'unknown' {
+  if (headers.includes('symboldescription')) return 'merrill';
   if (headers.some(h => h.includes('marketvalue') || h.includes('costbasis'))) return 'schwab';
   if (headers.some(h => h.includes('currentvalue') || h.includes('costbasistotal'))) return 'fidelity';
   return 'unknown';
@@ -88,6 +89,42 @@ function parseSchwab(rows: string[][], headerIdx: number, headers: string[]): Om
   return result;
 }
 
+function parseMerrill(rows: string[][], headerIdx: number, headers: string[]): Omit<ParsedCsvHolding, 'weight'>[] {
+  const result: Omit<ParsedCsvHolding, 'weight'>[] = [];
+  const symIdx = headers.indexOf('symboldescription');
+  if (symIdx === -1) return result;
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (row.length < 6) continue;
+    const symDesc = (row[symIdx] || '').trim();
+    if (!symDesc) continue;
+    const spaceIdx = symDesc.indexOf(' ');
+    const ticker = spaceIdx > 0 ? symDesc.slice(0, spaceIdx) : symDesc;
+    const name = spaceIdx > 0 ? symDesc.slice(spaceIdx + 1).trim() : '';
+    if (!ticker || /^\d/.test(ticker)) continue;
+    const qty = parseNum(col(row, headers, 'quantity'));
+    if (!qty) continue;
+    const price = parseNum(col(row, headers, 'price'));
+    const marketValue = parseNum(col(row, headers, 'value'));
+    if (!marketValue) continue;
+    const glIdx = headers.findIndex(h => h.includes('unrealizedgain'));
+    let gainLoss = 0, gainLossPct = 0;
+    if (glIdx !== -1 && row[glIdx]) {
+      const raw = row[glIdx].replace(/[$,%]/g, '').trim();
+      const parts = raw.split(/\s+/);
+      gainLoss = parseFloat(parts[0] || '0') || 0;
+      gainLossPct = parseFloat(parts[1] || '0') || 0;
+    }
+    const costBasis = marketValue - gainLoss;
+    const lowerName = name.toLowerCase();
+    const asset_type: 'stock' | 'etf' | 'bond' = lowerName.includes('etf') ? 'etf'
+      : (lowerName.includes('bond') || lowerName.startsWith('cd ') || lowerName.includes(' cd ')) ? 'bond'
+      : 'stock';
+    result.push({ ticker: ticker.toUpperCase(), name, quantity: qty, price, market_value: marketValue, cost_basis: costBasis, gain_loss: gainLoss, gain_loss_pct: gainLossPct, asset_type });
+  }
+  return result;
+}
+
 function parseFidelity(rows: string[][], headerIdx: number, headers: string[]): Omit<ParsedCsvHolding, 'weight'>[] {
   const result: Omit<ParsedCsvHolding, 'weight'>[] = [];
   for (let i = headerIdx + 1; i < rows.length; i++) {
@@ -125,8 +162,8 @@ export async function POST(req: NextRequest) {
   if (!header) return NextResponse.json({ error: 'Could not find header row (expected Symbol/Ticker column)' }, { status: 422 });
 
   const broker = detectBroker(header.headers);
-  const parsed = broker === 'fidelity'
-    ? parseFidelity(rows, header.idx, header.headers)
+  const parsed = broker === 'fidelity' ? parseFidelity(rows, header.idx, header.headers)
+    : broker === 'merrill' ? parseMerrill(rows, header.idx, header.headers)
     : parseSchwab(rows, header.idx, header.headers);
 
   if (!parsed.length) return NextResponse.json({
