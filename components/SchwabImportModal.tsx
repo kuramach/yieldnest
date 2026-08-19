@@ -119,7 +119,7 @@ export default function SchwabImportModal({ portfolioId, onSuccess, onClose }: P
           <div className="flex items-center gap-2">
             <Upload className="w-4 h-4 text-slate-400" />
             <h2 className="text-base font-bold text-slate-800">
-              {step === 'upload' ? 'Import from Schwab / Fidelity' : 'Preview Import'}
+              {step === 'upload' ? 'Import from Schwab / Fidelity / Merrill' : 'Preview Import'}
             </h2>
           </div>
           <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
@@ -131,7 +131,7 @@ export default function SchwabImportModal({ portfolioId, onSuccess, onClose }: P
         {step === 'upload' && (
           <div className="px-6 py-5 space-y-4">
             <p className="text-sm text-slate-600">
-              Export your <strong>Positions CSV</strong> from Schwab or Fidelity and upload it here.
+              Export your <strong>Positions CSV</strong> from Schwab, Fidelity, or Merrill Lynch and upload it here.
               We'll sync quantity, cost basis, and market value for all matching tickers — and add any new ones automatically.
             </p>
 
@@ -199,7 +199,7 @@ export default function SchwabImportModal({ portfolioId, onSuccess, onClose }: P
               ) : (
                 <div className="flex flex-col items-center gap-2">
                   <Upload className="w-8 h-8 text-slate-300" />
-                  <p className="text-sm font-semibold text-slate-600">Drop your Schwab/Fidelity CSV here</p>
+                  <p className="text-sm font-semibold text-slate-600">Drop your Schwab / Fidelity / Merrill CSV here</p>
                   <p className="text-xs text-slate-400">or click to browse</p>
                 </div>
               )}
