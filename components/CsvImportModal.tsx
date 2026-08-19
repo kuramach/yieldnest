@@ -177,6 +177,14 @@ export default function CsvImportModal({ bucketId, onSuccess }: Props) {
                       <li>Save the CSV file</li>
                     </ol>
                   </div>
+                  <div>
+                    <p className="text-xs font-semibold text-red-700 mb-1">Merrill Lynch</p>
+                    <ol className="text-xs text-slate-500 space-y-0.5 list-decimal list-inside">
+                      <li>Go to <strong>My Accounts</strong> → <strong>Portfolio</strong></li>
+                      <li>Click <strong>Holdings</strong>, then select your account(s)</li>
+                      <li>Click <strong>Export Data</strong> and save the CSV file</li>
+                    </ol>
+                  </div>
                 </div>
               )}
             </div>
