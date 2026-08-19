@@ -261,15 +261,18 @@ export default function CsvImportModal({ bucketId, onSuccess }: Props) {
 
         {/* Step 2 — Preview */}
         {step === 'preview' && preview && (
-          <div className="px-6 py-5 space-y-4">
+          <div className="flex flex-col min-h-0">
             {/* Broker badge */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 px-6 pt-5 pb-3">
               <span className="text-xs text-slate-500">Detected broker:</span>
               <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${BROKER_BADGE_COLORS[preview.broker]}`}>
                 {BROKER_LABELS[preview.broker]}
               </span>
               <span className="text-xs text-slate-400 ml-auto">{preview.total_rows} rows found</span>
             </div>
+
+            {/* Scrollable content */}
+            <div className="overflow-y-auto px-6 space-y-4" style={{ maxHeight: '55vh' }}>
 
             {/* Matched holdings */}
             {preview.matched.length > 0 ? (
@@ -348,7 +351,9 @@ export default function CsvImportModal({ bucketId, onSuccess }: Props) {
               </p>
             )}
 
-            <div className="flex justify-between gap-2">
+            </div>{/* end scrollable */}
+
+            <div className="flex justify-between gap-2 px-6 py-4 border-t border-slate-100">
               <button
                 onClick={() => { setStep('upload'); setPreview(null); }}
                 className="px-4 py-2 border border-slate-200 text-sm font-semibold text-slate-600 hover:border-slate-400 rounded-xl transition-colors"
